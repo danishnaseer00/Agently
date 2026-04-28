@@ -5,8 +5,8 @@ from typing import Any
 
 import streamlit as st
 from dotenv import dotenv_values, load_dotenv
-from langchain.agents import AgentExecutor, create_react_agent
-from langchain_core.prompts import PromptTemplate
+from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import tool
 from langchain_groq import ChatGroq
 from tavily import TavilyClient
@@ -20,7 +20,7 @@ DEFAULT_MODEL = "openai/gpt-oss-120b"
 
 
 def load_env_aliases() -> None:
-    """Support the variable names that already exist in the workspace .env file."""
+    """Load the local .env file and mirror the key names this app expects."""
     env_path = Path(__file__).resolve().with_name(".env")
     load_dotenv(dotenv_path=env_path, override=False)
     env_values = dotenv_values(env_path)
@@ -59,38 +59,31 @@ def format_history(messages: list[dict[str, str]]) -> str:
     return "\n".join(lines)
 
 
-def build_prompt() -> PromptTemplate:
+def build_prompt() -> ChatPromptTemplate:
     today = date.today().isoformat()
-    template = """You are a concise, accurate research assistant.
+    system_template = """You are a concise, accurate research assistant.
 Use the web_search tool for anything that may depend on current facts, recent events, live data, or verification.
 If the tool does not provide enough evidence, say that you do not know.
 Prefer the latest sourced information over memory.
 
+When you decide to call a tool, use the tool-calling mechanism with JSON arguments. After you receive an observation from the tool, continue reasoning and call tools only when needed. When you are done, respond with:
+Final Answer: <your answer>
+
 Today is {today}.
 
 You have access to the following tools:
-
 {tools}
 
-Use this format exactly:
-
-Question: the user's question
-Thought: think about the next step
-Action: one of [{tool_names}]
-Action Input: the input to the action
-Observation: tool result
-... (repeat Thought / Action / Action Input / Observation as needed)
-Thought: I now know the final answer
-Final Answer: the answer to the user
-
-Conversation so far:
-{chat_history}
-
-Begin.
-
-Question: {input}
-{agent_scratchpad}"""
-    return PromptTemplate.from_template(template).partial(today=today)
+Tool names: {tool_names}
+"""
+    return ChatPromptTemplate.from_messages(
+        [
+            ("system", system_template),
+            ("system", "Conversation so far:\n{chat_history}"),
+            ("human", "{input}"),
+            MessagesPlaceholder("agent_scratchpad"),
+        ]
+    ).partial(today=today)
 
 
 def build_web_search_tool(max_results: int = 5):
@@ -146,8 +139,13 @@ def build_agent(temperature: float, max_results: int):
         max_retries=2,
     )
     tools = [build_web_search_tool(max_results)]
-    prompt = build_prompt()
-    agent = create_react_agent(llm=llm, tools=tools, prompt=prompt)
+    llm = llm.bind_tools(tools, tool_choice="auto")
+    tools_desc = "\n".join(
+        f"{tool_obj.name}: {tool_obj.description}" for tool_obj in tools
+    )
+    tool_names = ", ".join(tool_obj.name for tool_obj in tools)
+    prompt = build_prompt().partial(tools=tools_desc, tool_names=tool_names)
+    agent = create_tool_calling_agent(llm=llm, tools=tools, prompt=prompt)
     return AgentExecutor(
         agent=agent,
         tools=tools,
@@ -169,66 +167,159 @@ def render_css() -> None:
     st.markdown(
         """
         <style>
+        @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap');
+
+        :root {
+            --bg: #f4efe7;
+            --bg-2: #edf2ef;
+            --surface: rgba(255, 255, 255, 0.78);
+            --surface-strong: #ffffff;
+            --text: #111827;
+            --muted: #5b6472;
+            --line: rgba(17, 24, 39, 0.08);
+            --accent: #0f766e;
+            --accent-2: #1d4ed8;
+            --shadow: 0 24px 70px rgba(15, 23, 42, 0.12);
+        }
+
         .stApp {
-            background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
-            color: #0f172a;
+            background:
+                radial-gradient(circle at 15% 20%, rgba(15, 118, 110, 0.12), transparent 26%),
+                radial-gradient(circle at 88% 12%, rgba(29, 78, 216, 0.10), transparent 24%),
+                linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 100%);
+            color: var(--text);
+            font-family: 'Manrope', sans-serif;
         }
+
+        html, body, [class*='css'] {
+            font-family: 'Manrope', sans-serif;
+        }
+
         .block-container {
-            padding-top: 1.2rem;
+            padding-top: 1rem;
             padding-bottom: 2rem;
-            max-width: 960px;
+            max-width: 1040px;
         }
+
         .hero {
-            border: 1px solid rgba(15, 23, 42, 0.08);
-            border-radius: 24px;
-            padding: 1.2rem 1.35rem;
-            background: rgba(255, 255, 255, 0.72);
-            backdrop-filter: blur(10px);
-            box-shadow: 0 20px 60px rgba(15, 23, 42, 0.08);
-            margin-bottom: 0.9rem;
+            border: 1px solid var(--line);
+            border-radius: 30px;
+            padding: 1.35rem 1.5rem 1.25rem;
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.84), rgba(255, 255, 255, 0.64));
+            backdrop-filter: blur(12px);
+            box-shadow: var(--shadow);
+            margin-bottom: 0.85rem;
         }
+
         .eyebrow {
             text-transform: uppercase;
-            letter-spacing: 0.12em;
+            letter-spacing: 0.14em;
             font-size: 0.72rem;
-            color: #0f766e;
-            font-weight: 700;
+            color: var(--accent);
+            font-weight: 800;
             margin-bottom: 0.35rem;
         }
+
         .hero h1 {
             margin: 0;
-            font-size: 2rem;
-            line-height: 1.08;
-            color: #0f172a;
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 2.4rem;
+            line-height: 1.05;
+            letter-spacing: -0.05em;
+            color: var(--text);
         }
+
         .hero p {
-            margin: 0.6rem 0 0;
-            color: #334155;
-            font-size: 1rem;
+            margin: 0.65rem 0 0;
+            color: var(--muted);
+            font-size: 1.02rem;
             max-width: 70ch;
         }
+
+        .chip-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.55rem;
+            margin: 0.3rem 0 0.9rem;
+        }
+
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            padding: 0.45rem 0.8rem;
+            background: rgba(255, 255, 255, 0.62);
+            color: var(--muted);
+            font-size: 0.84rem;
+            font-weight: 700;
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+        }
+
         .card-title {
             font-size: 0.82rem;
             text-transform: uppercase;
             letter-spacing: 0.08em;
             color: #64748b;
-            margin-bottom: 0.4rem;
+            margin: 0.15rem 0 0.45rem;
         }
+
         .trace-box {
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 14px;
-            padding: 0.8rem 0.9rem;
+            background: #fbfcfe;
+            border: 1px solid #d9e2ec;
+            border-radius: 16px;
+            padding: 0.9rem 1rem;
             margin-top: 0.5rem;
             color: #334155;
             font-size: 0.92rem;
             white-space: pre-wrap;
         }
-        .stChatMessage {
+
+        .stChatMessage[data-testid="stChatMessage"] {
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.84);
+            box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
             border-radius: 18px;
+            padding: 0.2rem 0.3rem;
         }
+
+        .stChatMessage [data-testid="stMarkdownContainer"] p {
+            font-size: 1rem;
+            line-height: 1.7;
+        }
+
         div[data-testid="stSidebar"] {
             display: none;
+        }
+
+        div[data-testid="stChatInput"] {
+            border-top: 1px solid rgba(17, 24, 39, 0.06);
+            padding-top: 0.8rem;
+        }
+
+        div[data-testid="stChatInput"] textarea {
+            font-family: 'Manrope', sans-serif;
+        }
+
+        .stButton > button {
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: rgba(255, 255, 255, 0.74);
+            color: var(--text);
+            font-weight: 700;
+            transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+        }
+
+        .stButton > button:hover {
+            transform: translateY(-1px);
+            border-color: rgba(15, 118, 110, 0.3);
+            box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+        }
+
+        .stExpander {
+            border-radius: 18px;
+            border-color: var(--line);
+            background: rgba(255, 255, 255, 0.5);
         }
         </style>
         """,
@@ -302,6 +393,17 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
+    st.markdown(
+        """
+        <div class="chip-row">
+            <div class="chip">Live web search</div>
+            <div class="chip">Groq reasoning</div>
+            <div class="chip">Minimal chat surface</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
     with st.expander("Agent settings", expanded=False):
         settings_left, settings_right = st.columns([1, 1])
         temperature = settings_left.slider("Temperature", 0.0, 1.0, 0.2, 0.05)
@@ -333,22 +435,20 @@ def main() -> None:
         st.error(str(exc))
         st.stop()
 
-    chat_surface = st.container()
-    with chat_surface:
-        st.markdown("<div class='card-title'>Conversation</div>", unsafe_allow_html=True)
+    st.markdown("<div class='card-title'>Conversation</div>", unsafe_allow_html=True)
 
-        if not st.session_state.messages:
-            st.info(
-                "Ask something current or research-heavy. The agent will call web search when it needs live information."
-            )
+    if not st.session_state.messages:
+        st.info(
+            "Ask something current or research-heavy. The agent will call web search when it needs live information."
+        )
 
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
 
-        if st.session_state.last_trace:
-            with st.expander("Tool trace", expanded=False):
-                st.markdown(trace_to_text(st.session_state.last_trace))
+    if st.session_state.last_trace:
+        with st.expander("Tool trace", expanded=False):
+            st.markdown(trace_to_text(st.session_state.last_trace))
 
     prompt = st.chat_input("Ask something current or research-heavy...")
 
