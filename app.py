@@ -13,7 +13,7 @@ from tavily import TavilyClient
 
 APP_TITLE = "ReAct Research Agent"
 APP_SUBTITLE = (
-    "A lightweight LangChain agent that reasons step by step and uses Tavily web search "
+    "An Agent that reasons step by step and uses web search "
     "whenever the answer may depend on recent or current information."
 )
 DEFAULT_MODEL = "openai/gpt-oss-120b"
@@ -196,7 +196,7 @@ def render_css() -> None:
         }
 
         .block-container {
-            padding-top: 1rem;
+            padding-top: 1.8rem;
             padding-bottom: 2rem;
             max-width: 1040px;
         }
@@ -208,6 +208,7 @@ def render_css() -> None:
             background: linear-gradient(135deg, rgba(255, 255, 255, 0.84), rgba(255, 255, 255, 0.64));
             backdrop-filter: blur(12px);
             box-shadow: var(--shadow);
+            margin-top: 0.5rem;
             margin-bottom: 0.85rem;
         }
 
@@ -385,7 +386,6 @@ def main() -> None:
     st.markdown(
         f"""
         <div class="hero">
-            <div class="eyebrow">LangChain ReAct Agent</div>
             <h1>{APP_TITLE}</h1>
             <p>{APP_SUBTITLE}</p>
         </div>
@@ -439,7 +439,7 @@ def main() -> None:
 
     if not st.session_state.messages:
         st.info(
-            "Ask something current or research-heavy. The agent will call web search when it needs live information."
+            "Ask something current or research-heavy"
         )
 
     for message in st.session_state.messages:
