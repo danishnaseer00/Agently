@@ -19,11 +19,14 @@ ENV/
 !.env.example
 !.env.template
 
-# Streamlit and local app state
-.streamlit/secrets.toml
-
 # Editor and OS files
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Frontend artifacts
+node_modules/
+web/node_modules/
+web/dist/
+web/.vite/

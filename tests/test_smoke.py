@@ -1,7 +1,5 @@
 from __future__ import annotations
-
 import unittest
-
 from app.agent.agent import build_agent
 from app.agent.parser import build_prompt
 from app.core.config import load_settings
