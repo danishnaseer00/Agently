@@ -220,10 +220,11 @@ function App() {
       <aside className={`sidebar ${sidebarOpen ? 'open' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`}>
         <div className="sidebar-header">
           <div className="brand-row">
-            <h1 className="brand">ReAct Agent</h1>
             <button className="icon-button ghost desktop-only" onClick={toggleCollapse} aria-label="Toggle sidebar">
               {sidebarCollapsed ? '»' : '«'}
             </button>
+          </div>
+          <div className="mobile-header-row">
             <button className="icon-button ghost mobile-only" onClick={() => setSidebarOpen(false)} aria-label="Close sidebar">
               ✕
             </button>
@@ -234,7 +235,7 @@ function App() {
         </div>
         <div className="conversation-list">
           {conversations.map((conversation) => (
-            <button
+            <div
               key={conversation.id}
               className={`conversation-item ${conversation.id === activeConversation?.id ? 'active' : ''}`}
               onClick={() => {
@@ -242,9 +243,34 @@ function App() {
                 setSidebarOpen(false)
               }}
             >
-              <span>{conversation.title}</span>
+              <span className="conversation-title">{conversation.title}</span>
               <small>{new Date(conversation.createdAt).toLocaleDateString()}</small>
-            </button>
+              <div className="conversation-actions" onClick={(e) => e.stopPropagation()}>
+                <button
+                  className="action-btn"
+                  onClick={() => {
+                    const newTitle = prompt('Edit chat name:', conversation.title)
+                    if (newTitle && newTitle.trim()) {
+                      updateConversation(conversation.id, (c) => ({ ...c, title: newTitle.trim() }))
+                    }
+                  }}
+                  aria-label="Edit chat name"
+                >
+                  ✎
+                </button>
+                <button
+                  className="action-btn delete"
+                  onClick={() => {
+                    if (confirm('Delete this chat?')) {
+                      setConversations((prev) => prev.filter((c) => c.id !== conversation.id))
+                    }
+                  }}
+                  aria-label="Delete chat"
+                >
+                  🗑
+                </button>
+              </div>
+            </div>
           ))}
         </div>
       </aside>
@@ -254,10 +280,7 @@ function App() {
           <button className="icon-button ghost mobile-only" onClick={() => setSidebarOpen(true)} aria-label="Show history">
             ☰
           </button>
-          <div>
-            <h2 className="chat-title">{activeConversation?.title || 'Chat'}</h2>
-            <p className="chat-subtitle">Simple, focused, and streaming.</p>
-          </div>
+          <h2 className="chat-title">Agently</h2>
         </header>
 
         <section className="message-list">

@@ -1,5 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');
-@import url('https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css');
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Computer+Modern+Serif:wght@400;500;600;700&display=swap');
 
 :root {
   --bg: #ffffff;
@@ -8,8 +8,9 @@
   --border: #e5e7eb;
   --panel: #f7f7f8;
   --shadow: 0 14px 40px rgba(15, 23, 42, 0.08);
-  --font-ui: 'Space Grotesk', sans-serif;
-  --font-cm: 'KaTeX_Main', 'CMU Serif', 'Computer Modern', serif;
+  --font-ui: 'Computer Modern Serif', serif;
+  --font-brand: 'Playfair Display', serif;
+  --font-mono: 'Computer Modern Serif', serif;
 }
 
 * {
@@ -84,10 +85,8 @@ body {
   gap: 12px;
 }
 
-.brand {
-  font-family: var(--font-cm);
-  font-size: 1.4rem;
-  margin: 0;
+.mobile-header-row {
+  display: none;
 }
 
 .icon-button {
@@ -129,6 +128,7 @@ body {
   text-align: left;
   cursor: pointer;
   font-family: var(--font-ui);
+  position: relative;
 }
 
 .conversation-item.active {
@@ -136,12 +136,56 @@ body {
   background: var(--panel);
 }
 
-.conversation-item span {
+.conversation-title {
+  font-family: var(--font-ui);
   font-weight: 600;
+}
+
+.chat-title {
+  font-family: var(--font-brand);
+  font-size: 1.6rem;
+  font-weight: 600;
+  margin: 0;
 }
 
 .conversation-item small {
   color: var(--muted);
+}
+
+.conversation-item small {
+  color: var(--muted);
+}
+
+.conversation-actions {
+  display: none;
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  gap: 4px;
+}
+
+.conversation-item:hover .conversation-actions,
+.conversation-item.active .conversation-actions {
+  display: flex;
+}
+
+.action-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.action-btn.delete {
+  color: #dc2626;
+}
+
+.action-btn.delete:hover {
+  background: #fef2f2;
+  border-color: #dc2626;
 }
 
 .chat-panel {
@@ -160,14 +204,16 @@ body {
 }
 
 .chat-title {
-  font-family: var(--font-cm);
+  font-family: var(--font-brand);
   font-size: 1.6rem;
+  font-weight: 600;
   margin: 0;
 }
 
-.chat-subtitle {
-  margin: 6px 0 0;
-  color: var(--muted);
+.conversation-title {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 0.9rem;
 }
 
 .message-list {
@@ -185,6 +231,8 @@ body {
   border-radius: 18px;
   background: var(--panel);
   line-height: 1.6;
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
 }
 
 .message-text {
@@ -206,7 +254,6 @@ body {
 
 .message-bubble.assistant {
   align-self: flex-start;
-  font-family: var(--font-cm);
 }
 
 .thinking {
@@ -312,20 +359,20 @@ button.ghost {
     z-index: 20;
   }
 
-  .sidebar.collapsed {
-    width: 260px;
-    padding: 24px;
-    overflow: visible;
-  }
-
-  .sidebar.collapsed .conversation-list,
-  .sidebar.collapsed .primary,
-  .sidebar.collapsed .brand {
-    display: flex;
-  }
-
   .sidebar.open {
     transform: translateX(0);
+  }
+
+  .brand-row {
+    display: none;
+  }
+
+  .mobile-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    margin-bottom: 12px;
   }
 
   .sidebar-backdrop {
@@ -361,11 +408,6 @@ button.ghost {
 
   .chat-title {
     font-size: 1.1rem;
-  }
-
-  .chat-subtitle {
-    font-size: 0.85rem;
-    display: none;
   }
 
   .message-list {
