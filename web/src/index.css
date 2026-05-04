@@ -350,25 +350,37 @@ button.ghost {
   display: inline-flex;
 }
 
+.desktop-new-chat {
+  display: inline-flex;
+}
+
+.desktop-only {
+  display: inline-flex;
+}
+
 @media (max-width: 900px) {
-  .sidebar {
-    position: fixed;
-    inset: 0 auto 0 0;
-    transform: translateX(-100%);
-    transition: transform 0.3s ease;
-    z-index: 20;
-    width: 280px;
-    background: #ffffff;
-    border-right: 1px solid var(--border);
-    padding: 24px;
+  .sidebar-header > .primary.new-chat-btn {
     display: flex;
-    flex-direction: column;
-    gap: 20px;
-    overflow-y: auto;
   }
 
-  .sidebar.open {
-    transform: translateX(0);
+  .sidebar-header > .primary:not(.new-chat-btn) {
+    display: none;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 280px;
+    height: 100vh;
+    background: #ffffff;
+    z-index: 20;
+    padding: 24px;
+  }
+
+  .sidebar:not(.open) {
+    display: none;
   }
 
   .brand-row {
@@ -381,6 +393,11 @@ button.ghost {
     align-items: center;
     width: 100%;
     margin-bottom: 12px;
+  }
+
+  .new-chat-btn {
+    flex: 1;
+    margin-right: 8px;
   }
 
   .sidebar-backdrop {

@@ -225,6 +225,9 @@ function App() {
             </button>
           </div>
           <div className="mobile-header-row">
+            <button className="primary new-chat-btn" onClick={createNewChat}>
+              New chat
+            </button>
             <button className="icon-button ghost mobile-only" onClick={() => setSidebarOpen(false)} aria-label="Close sidebar">
               ✕
             </button>
