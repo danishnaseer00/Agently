@@ -357,6 +357,14 @@ button.ghost {
     transform: translateX(-100%);
     transition: transform 0.3s ease;
     z-index: 20;
+    width: 280px;
+    background: #ffffff;
+    border-right: 1px solid var(--border);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    overflow-y: auto;
   }
 
   .sidebar.open {
