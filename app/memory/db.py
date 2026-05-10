@@ -37,6 +37,35 @@ def init_db() -> None:
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id)")
+
+        # NEW: Documents table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS documents (
+                id TEXT PRIMARY KEY,
+                conversation_id TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                content_type TEXT,
+                size_bytes INTEGER,
+                upload_date TEXT NOT NULL,
+                metadata TEXT,
+                FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_conv ON documents(conversation_id)")
+
+        # NEW: Document chunks table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS document_chunks (
+                id TEXT PRIMARY KEY,
+                document_id TEXT NOT NULL,
+                chunk_index INTEGER,
+                content TEXT NOT NULL,
+                chunk_size INTEGER,
+                FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_chunks_doc ON document_chunks(document_id)")
+
         conn.commit()
 
 
@@ -106,6 +135,71 @@ def update_conversation_title(conv_id: str, title: str) -> None:
             "UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?",
             (title, datetime.now().isoformat(), conv_id),
         )
+        conn.commit()
+
+
+def save_document(
+    doc_id: str,
+    conversation_id: str,
+    filename: str,
+    content_type: str,
+    size_bytes: int,
+    metadata: str | None = None,
+) -> None:
+    """Save document metadata."""
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO documents
+               (id, conversation_id, filename, content_type, size_bytes, upload_date, metadata)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (doc_id, conversation_id, filename, content_type, size_bytes, datetime.now().isoformat(), metadata),
+        )
+        conn.commit()
+
+
+def save_document_chunk(
+    chunk_id: str,
+    document_id: str,
+    chunk_index: int,
+    content: str,
+    chunk_size: int,
+) -> None:
+    """Save document chunk."""
+    with get_connection() as conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO document_chunks
+               (id, document_id, chunk_index, content, chunk_size)
+               VALUES (?, ?, ?, ?, ?)""",
+            (chunk_id, document_id, chunk_index, content, chunk_size),
+        )
+        conn.commit()
+
+
+def get_documents(conversation_id: str) -> list[dict]:
+    """Get all documents for a conversation."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, filename, content_type, size_bytes, upload_date, metadata FROM documents WHERE conversation_id = ? ORDER BY upload_date DESC",
+            (conversation_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def get_document_chunks(document_id: str) -> list[dict]:
+    """Get all chunks for a document."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, chunk_index, content, chunk_size FROM document_chunks WHERE document_id = ? ORDER BY chunk_index ASC",
+            (document_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def delete_document(document_id: str) -> None:
+    """Delete document and cascade delete chunks."""
+    with get_connection() as conn:
+        conn.execute("DELETE FROM document_chunks WHERE document_id = ?", (document_id,))
+        conn.execute("DELETE FROM documents WHERE id = ?", (document_id,))
         conn.commit()
 
 

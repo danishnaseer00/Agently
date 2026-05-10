@@ -19,6 +19,8 @@ class ChatRequest(BaseModel):
     temperature: float = 0.2
     max_results: int = 5
     debug: bool = False
+    document_ids: list[str] | None = Field(default=None, description="IDs of documents to search in")
+    use_rag: bool = Field(default=False, description="Enable RAG for document retrieval")
 
 
 class ChatResponse(BaseModel):
@@ -28,3 +30,12 @@ class ChatResponse(BaseModel):
 
 class UpdateTitleRequest(BaseModel):
     title: str = Field(..., description="New conversation title")
+
+
+class DocumentMetadata(BaseModel):
+    id: str
+    filename: str
+    content_type: str | None
+    size_bytes: int
+    upload_date: str
+    chunk_count: int = 0

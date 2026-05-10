@@ -71,6 +71,37 @@ const parseSsePayload = (text) => {
   return { event, data }
 }
 
+const loadDocumentsFromApi = async (convId) => {
+  try {
+    const res = await fetch(`${API_BASE}/api/documents?conversation_id=${convId}`)
+    if (!res.ok) return []
+    return await res.json()
+  } catch {
+    return []
+  }
+}
+
+const uploadDocumentToApi = async (file, convId) => {
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    const res = await fetch(`${API_BASE}/api/documents/upload?conversation_id=${convId}`, {
+      method: 'POST',
+      body: formData,
+    })
+    if (!res.ok) return null
+    return await res.json()
+  } catch {
+    return null
+  }
+}
+
+const deleteDocumentFromApi = async (docId, convId) => {
+  try {
+    await fetch(`${API_BASE}/api/documents/${docId}?conversation_id=${convId}`, { method: 'DELETE' })
+  } catch {}
+}
+
 function App() {
   const [conversations, setConversations] = useState([])
   const [activeId, setActiveId] = useState(null)
@@ -84,8 +115,15 @@ function App() {
   const [availableTools, setAvailableTools] = useState([])
   const [selectedTools, setSelectedTools] = useState([])
   const [showTools, setShowTools] = useState(false)
+  const [documents, setDocuments] = useState([])
+  const [selectedDocuments, setSelectedDocuments] = useState([])
+  const [useRag, setUseRag] = useState(false)
+  const [showDocuments, setShowDocuments] = useState(false)
+  const [uploading, setUploading] = useState(false)
   const bottomRef = useRef(null)
   const toolsRef = useRef(null)
+  const documentsRef = useRef(null)
+  const fileInputRef = useRef(null)
 
   const activeConversation = useMemo(
     () => conversations.find((item) => item.id === activeId) || conversations[0],
@@ -118,6 +156,8 @@ function App() {
   useEffect(() => {
     if (activeId && loaded) {
       loadMessagesFromApi(activeId).then(setMessages)
+      loadDocumentsFromApi(activeId).then(setDocuments)
+      setSelectedDocuments([])
     }
   }, [activeId, loaded])
 
@@ -159,6 +199,8 @@ function App() {
           conversation_id: activeId,
           title,
           tool_names: selectedTools.length > 0 ? selectedTools : null,
+          document_ids: selectedDocuments.length > 0 ? selectedDocuments : null,
+          use_rag: useRag && selectedDocuments.length > 0,
         }),
       })
 
@@ -438,6 +480,155 @@ function App() {
         </section>
 
         <footer className="composer" style={{ position: 'relative', zIndex: 60 }}>
+          {/* Documents Container */}
+          <div className="documents-container" ref={documentsRef} style={{ position: 'relative' }}>
+            <button
+              className={`doc-btn ${showDocuments ? 'active' : ''} ${selectedDocuments.length > 0 ? 'has-selection' : ''}`}
+              onClick={() => setShowDocuments(!showDocuments)}
+              aria-label="Manage documents"
+              title="Upload and manage documents for RAG"
+            >
+              <span className="doc-btn-icon">📄</span>
+              {selectedDocuments.length > 0 && !showDocuments && (
+                <span className="doc-badge">{selectedDocuments.length}</span>
+              )}
+            </button>
+
+            {showDocuments && (
+              <div className="documents-box" style={{ position: 'absolute', bottom: '100%', right: 0, marginBottom: '10px', zIndex: 70 }}>
+                <div className="documents-box-header">
+                  <div className="header-left">
+                    <h3 style={{ margin: '0 0 0 0', fontSize: '0.9rem' }}>Documents</h3>
+                    {selectedDocuments.length > 0 && (
+                      <span className="selected-count" style={{ marginLeft: '8px', background: '#111827', color: '#fff', padding: '2px 6px', borderRadius: '3px', fontSize: '0.8rem' }}>
+                        {selectedDocuments.length}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    {selectedDocuments.length > 0 && (
+                      <button className="clear-btn" onClick={() => setSelectedDocuments([])} style={{ fontSize: '0.8rem' }}>
+                        Deselect All
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px solid #e5e7eb' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={useRag}
+                      onChange={(e) => setUseRag(e.target.checked)}
+                      disabled={selectedDocuments.length === 0}
+                    />
+                    Use RAG
+                  </label>
+                </div>
+
+                <div style={{ marginBottom: '12px' }}>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploading}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      background: '#111827',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: '6px',
+                      cursor: uploading ? 'not-allowed' : 'pointer',
+                      opacity: uploading ? 0.6 : 1,
+                      fontSize: '0.9rem',
+                    }}
+                  >
+                    {uploading ? 'Uploading...' : 'Upload File'}
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf,.txt,.docx"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0]
+                      if (file && activeId) {
+                        setUploading(true)
+                        const result = await uploadDocumentToApi(file, activeId)
+                        setUploading(false)
+                        if (result) {
+                          await loadDocumentsFromApi(activeId).then(setDocuments)
+                          fileInputRef.current.value = ''
+                        }
+                      }
+                    }}
+                    style={{ display: 'none' }}
+                  />
+                </div>
+
+                <div className="documents-list" style={{ maxHeight: '300px', overflowY: 'auto', borderRadius: '6px', border: '1px solid #e5e7eb' }}>
+                  {documents.length === 0 ? (
+                    <div style={{ padding: '12px', textAlign: 'center', color: '#6b7280', fontSize: '0.9rem' }}>
+                      No documents uploaded
+                    </div>
+                  ) : (
+                    documents.map((doc) => (
+                      <div
+                        key={doc.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          padding: '10px',
+                          borderBottom: '1px solid #e5e7eb',
+                          cursor: 'pointer',
+                        }}
+                        onClick={() => {
+                          if (selectedDocuments.includes(doc.id)) {
+                            setSelectedDocuments((prev) => prev.filter((id) => id !== doc.id))
+                          } else {
+                            setSelectedDocuments((prev) => [...prev, doc.id])
+                          }
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedDocuments.includes(doc.id)}
+                          onChange={() => {}}
+                          style={{ cursor: 'pointer' }}
+                        />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: '0.85rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {doc.filename}
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
+                            {doc.chunk_count} chunks · {(doc.size_bytes / 1024).toFixed(1)}KB
+                          </div>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            deleteDocumentFromApi(doc.id, activeId).then(() => {
+                              setDocuments((prev) => prev.filter((d) => d.id !== doc.id))
+                              setSelectedDocuments((prev) => prev.filter((id) => id !== doc.id))
+                            })
+                          }}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontSize: '0.9rem',
+                            padding: '4px',
+                          }}
+                          title="Delete document"
+                        >
+                          🗑
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
           <div className="tools-container" ref={toolsRef}>
             <button
               className={`tool-btn ${showTools ? 'active' : ''} ${selectedTools.length > 0 ? 'has-selection' : ''}`}

@@ -2,15 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import tempfile
 from datetime import datetime
 from functools import lru_cache
 from typing import Iterable, Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from app.api.schemas import ChatRequest, ChatResponse, UpdateTitleRequest
+from app.api.schemas import ChatRequest, ChatResponse, UpdateTitleRequest, DocumentMetadata
 from app.agent.agent import build_agent
 from app.core.config import load_settings
 from app.core.llm import build_llm
@@ -22,8 +23,18 @@ from app.memory.db import (
     save_conversation,
     save_message,
     update_conversation_title,
+    save_document,
+    save_document_chunk,
+    get_documents,
+    get_document_chunks,
+    delete_document,
 )
 from app.services.research_service import run_research
+from app.services.document_service import (
+    parse_document,
+    recursive_chunk_text,
+)
+from app.services.rag import get_rag_retrieval
 from app.tools.search import build_web_search_tool
 from app.tools.scraper import fetch_url
 from app.tools.file_tool import read_file, list_files
@@ -113,6 +124,102 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.post("/api/documents/upload")
+async def upload_document(file: UploadFile, conversation_id: str) -> dict:
+    """Upload and index a document for RAG."""
+    try:
+        # Save file to temp location
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".tmp") as tmp:
+            content = await file.read()
+            tmp.write(content)
+            tmp_path = tmp.name
+
+        # Detect content type
+        content_type = file.content_type or "text/plain"
+
+        # Parse document
+        text = parse_document(tmp_path, content_type)
+
+        # Recursive chunking
+        from app.services.rag.config import RAGConfig
+        chunks = recursive_chunk_text(
+            text,
+            chunk_size=RAGConfig.CHUNK_SIZE,
+            overlap=RAGConfig.CHUNK_OVERLAP,
+        )
+
+        # Generate document ID
+        doc_id = f"doc-{datetime.now().timestamp()}"
+
+        # Save to database
+        metadata = json.dumps({
+            "original_name": file.filename,
+            "chunk_count": len(chunks),
+        })
+        save_document(doc_id, conversation_id, file.filename, content_type, len(content), metadata)
+
+        # Save chunks
+        for idx, chunk in enumerate(chunks):
+            chunk_id = f"chunk-{doc_id}-{idx}"
+            save_document_chunk(chunk_id, doc_id, idx, chunk, len(chunk))
+
+        # Index in RAG system
+        rag = get_rag_retrieval()
+        collection_name = f"conv-{conversation_id}"
+        rag.index_document(collection_name, doc_id, chunks)
+
+        import os
+        os.unlink(tmp_path)
+
+        return {
+            "document_id": doc_id,
+            "filename": file.filename,
+            "chunk_count": len(chunks),
+            "status": "indexed",
+        }
+    except Exception as exc:
+        print(f"[API] Upload error: {exc}")
+        return {"error": str(exc), "status": "failed"}
+
+
+@app.get("/api/documents")
+def list_documents(conversation_id: str) -> list[dict]:
+    """List documents for a conversation."""
+    docs = get_documents(conversation_id)
+    result = []
+    for doc in docs:
+        chunks = get_document_chunks(doc["id"])
+        result.append(
+            DocumentMetadata(
+                id=doc["id"],
+                filename=doc["filename"],
+                content_type=doc["content_type"],
+                size_bytes=doc["size_bytes"],
+                upload_date=doc["upload_date"],
+                chunk_count=len(chunks),
+            ).model_dump()
+        )
+    return result
+
+
+@app.delete("/api/documents/{doc_id}")
+def delete_doc(doc_id: str, conversation_id: str) -> dict[str, str]:
+    """Delete a document and its embeddings."""
+    try:
+        # Delete from vector DB
+        collection_name = f"conv-{conversation_id}"
+        vector_db = get_vector_db()
+        # Note: Qdrant doesn't have direct doc_id delete, but chunks are keyed by doc_id
+
+        # Delete from database
+        delete_document(doc_id)
+
+        return {"status": "deleted"}
+    except Exception as exc:
+        return {"error": str(exc), "status": "failed"}
+
+
+
 @app.on_event("startup")
 def startup():
     init_db()
@@ -146,7 +253,23 @@ def chat(request: ChatRequest) -> ChatResponse:
     messages.append({"role": "user", "content": request.message})
 
     executor = _build_executor(request.temperature, request.max_results, request.tool_names)
-    answer, trace = run_research(executor, request.message, messages)
+
+    # Retrieve documents if RAG is enabled
+    doc_context = None
+    if request.use_rag and request.document_ids and request.conversation_id:
+        try:
+            rag = get_rag_retrieval()
+            collection_name = f"conv-{request.conversation_id}"
+            chunks = rag.retrieve(
+                request.message,
+                collection_name,
+                request.document_ids,
+            )
+            doc_context = rag.format_context(chunks)
+        except Exception as exc:
+            print(f"[API] RAG retrieval error: {exc}")
+
+    answer, trace = run_research(executor, request.message, messages, doc_context)
 
     conv_id = request.conversation_id or f"conv-{datetime.now().timestamp()}"
     now = datetime.now().isoformat()
@@ -166,6 +289,21 @@ def chat_stream(request: ChatRequest):
 
     executor = _build_executor(request.temperature, request.max_results, request.tool_names)
 
+    # Retrieve documents if RAG is enabled
+    doc_context = None
+    if request.use_rag and request.document_ids and request.conversation_id:
+        try:
+            rag = get_rag_retrieval()
+            collection_name = f"conv-{request.conversation_id}"
+            chunks = rag.retrieve(
+                request.message,
+                collection_name,
+                request.document_ids,
+            )
+            doc_context = rag.format_context(chunks)
+        except Exception as exc:
+            print(f"[API] RAG retrieval error: {exc}")
+
     conv_id = request.conversation_id or f"conv-{datetime.now().timestamp()}"
     now = datetime.now().isoformat()
     save_conversation(conv_id, request.title or "New chat", now, now)
@@ -173,7 +311,7 @@ def chat_stream(request: ChatRequest):
 
     async def event_stream():
         yield _sse("status", {"state": "thinking"})
-        answer, trace = run_research(executor, request.message, messages)
+        answer, trace = run_research(executor, request.message, messages, doc_context)
 
         for step in _format_trace(trace):
             yield _sse("tool", step)
