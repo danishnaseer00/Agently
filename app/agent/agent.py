@@ -7,7 +7,7 @@ from langchain.agents import AgentExecutor, create_tool_calling_agent
 from app.agent.parser import build_prompt
 
 
-def build_agent(llm, tools: Sequence, max_iterations: int = 4) -> AgentExecutor:
+def build_agent(llm, tools: Sequence, max_iterations: int = 15) -> AgentExecutor:
     tools_desc = "\n".join(
         f"{tool_obj.name}: {tool_obj.description}" for tool_obj in tools
     )

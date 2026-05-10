@@ -24,3 +24,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     trace: list[dict[str, str]] | None = None
+
+
+class UpdateTitleRequest(BaseModel):
+    title: str = Field(..., description="New conversation title")

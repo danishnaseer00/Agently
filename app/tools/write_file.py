@@ -4,7 +4,7 @@ from pathlib import Path
 
 from langchain_core.tools import tool
 
-ALLOWED_ROOT = Path.home() / "AI-workingdir"
+ALLOWED_ROOT = Path.home() / "Desktop" / "AI-workingdir"
 
 
 def _resolve_safe_write_path(path: str) -> Path | None:

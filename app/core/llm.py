@@ -21,6 +21,8 @@ def build_llm(settings: Settings, temperature: float, tools: Sequence | None = N
     )
 
     if tools:
-        llm = llm.bind_tools(list(tools), tool_choice="auto")
+        tools_list = list(tools)
+        print(f"[LLM] Binding {len(tools_list)} tools: {[t.name for t in tools_list]}")
+        llm = llm.bind_tools(tools_list, tool_choice="auto")
 
     return llm

@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from app.api.schemas import ChatRequest, ChatResponse
+from app.api.schemas import ChatRequest, ChatResponse, UpdateTitleRequest
 from app.agent.agent import build_agent
 from app.core.config import load_settings
 from app.core.llm import build_llm
@@ -69,8 +69,8 @@ def _sse(event: str, data: dict[str, object]) -> str:
 
 
 def _build_executor(temperature: float, max_results: int, tool_names: list[str] | None = None):
+    import sys
     settings = get_settings()
-    tools = []
 
     available = {
         "web_search": build_web_search_tool(settings, max_results),
@@ -81,14 +81,18 @@ def _build_executor(temperature: float, max_results: int, tool_names: list[str] 
     }
 
     if tool_names:
-        for name in tool_names:
-            if name in available:
-                tools.append(available[name])
+        tools = [available[name] for name in tool_names if name in available]
     else:
-        tools.append(available["web_search"])
+        tools = [available["web_search"], available["fetch_url"], available["read_file"], available["list_files"], available["write_file"]]
+
+    tool_names_list = [t.name for t in tools]
+    print(f"\n[DEBUG] Building executor with tools: {tool_names_list}", file=sys.stderr)
 
     llm = build_llm(settings, temperature, tools)
-    return build_agent(llm, tools)
+    executor = build_agent(llm, tools)
+
+    print(f"[DEBUG] Agent tools: {[t.name for t in executor.tools]}", file=sys.stderr)
+    return executor
 
 
 @app.get("/api/tools")
@@ -131,8 +135,8 @@ def delete_conv(conv_id: str) -> dict[str, str]:
 
 
 @app.patch("/api/conversations/{conv_id}")
-def update_title(conv_id: str, title: str) -> dict[str, str]:
-    update_conversation_title(conv_id, title)
+def update_title(conv_id: str, request: UpdateTitleRequest) -> dict[str, str]:
+    update_conversation_title(conv_id, request.title)
     return {"status": "updated"}
 
 

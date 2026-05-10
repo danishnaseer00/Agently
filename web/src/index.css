@@ -254,14 +254,44 @@ body {
 }
 
 .message-text {
-  white-space: pre-wrap;
+  white-space: normal;
   word-break: break-word;
+}
+
+.message-text p {
+  margin: 0 0 12px 0;
+}
+
+.message-text ul {
+  margin: 12px 0;
+  padding-left: 24px;
+}
+
+.message-text li {
+  margin-bottom: 8px;
+}
+
+.message-text strong {
+  font-weight: 600;
+}
+
+.message-text em {
+  font-style: italic;
 }
 
 .message-text a {
   color: inherit;
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+
+.message-text pre {
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 4px;
+  padding: 10px;
+  overflow-x: auto;
+  margin: 12px 0;
+  font-size: 0.9rem;
 }
 
 .message-bubble.user {
