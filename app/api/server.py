@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime
 from functools import lru_cache
-from typing import Iterable
+from typing import Iterable, Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,8 +14,20 @@ from app.api.schemas import ChatRequest, ChatResponse
 from app.agent.agent import build_agent
 from app.core.config import load_settings
 from app.core.llm import build_llm
+from app.memory.db import (
+    delete_conversation,
+    get_conversation_messages,
+    get_conversations,
+    init_db,
+    save_conversation,
+    save_message,
+    update_conversation_title,
+)
 from app.services.research_service import run_research
 from app.tools.search import build_web_search_tool
+from app.tools.scraper import fetch_url
+from app.tools.file_tool import read_file, list_files
+from app.tools.write_file import write_file
 
 app = FastAPI(title="ReAct Agent API", version="0.1.0")
 
@@ -55,11 +68,40 @@ def _sse(event: str, data: dict[str, object]) -> str:
     return f"event: {event}\ndata: {payload}\n\n"
 
 
-def _build_executor(temperature: float, max_results: int):
+def _build_executor(temperature: float, max_results: int, tool_names: list[str] | None = None):
     settings = get_settings()
-    tools = [build_web_search_tool(settings, max_results)]
+    tools = []
+
+    available = {
+        "web_search": build_web_search_tool(settings, max_results),
+        "fetch_url": fetch_url,
+        "read_file": read_file,
+        "list_files": list_files,
+        "write_file": write_file,
+    }
+
+    if tool_names:
+        for name in tool_names:
+            if name in available:
+                tools.append(available[name])
+    else:
+        tools.append(available["web_search"])
+
     llm = build_llm(settings, temperature, tools)
     return build_agent(llm, tools)
+
+
+@app.get("/api/tools")
+def list_tools() -> dict:
+    return {
+        "tools": [
+            {"name": "web_search", "description": "Search the web for current information, news, facts"},
+            {"name": "fetch_url", "description": "Fetch content from a URL"},
+            {"name": "read_file", "description": "Read files from AI-workingdir folder"},
+            {"name": "list_files", "description": "List files in AI-workingdir folder"},
+            {"name": "write_file", "description": "Write files to AI-workingdir folder"},
+        ]
+    }
 
 
 @app.get("/api/health")
@@ -67,13 +109,48 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.on_event("startup")
+def startup():
+    init_db()
+
+
+@app.get("/api/conversations")
+def list_conversations() -> list[dict]:
+    return get_conversations()
+
+
+@app.get("/api/conversations/{conv_id}/messages")
+def list_messages(conv_id: str) -> list[dict]:
+    return get_conversation_messages(conv_id)
+
+
+@app.delete("/api/conversations/{conv_id}")
+def delete_conv(conv_id: str) -> dict[str, str]:
+    delete_conversation(conv_id)
+    return {"status": "deleted"}
+
+
+@app.patch("/api/conversations/{conv_id}")
+def update_title(conv_id: str, title: str) -> dict[str, str]:
+    update_conversation_title(conv_id, title)
+    return {"status": "updated"}
+
+
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(request: ChatRequest) -> ChatResponse:
     messages = [item.model_dump() for item in request.history]
     messages.append({"role": "user", "content": request.message})
 
-    executor = _build_executor(request.temperature, request.max_results)
+    executor = _build_executor(request.temperature, request.max_results, request.tool_names)
     answer, trace = run_research(executor, request.message, messages)
+
+    conv_id = request.conversation_id or f"conv-{datetime.now().timestamp()}"
+    now = datetime.now().isoformat()
+
+    save_conversation(conv_id, request.title or "New chat", now, now)
+    save_message(f"user-{datetime.now().timestamp()}", conv_id, "user", request.message, now)
+    save_message(f"assistant-{datetime.now().timestamp()}", conv_id, "assistant", answer, now)
+
     trace_payload = _format_trace(trace) if request.debug else None
     return ChatResponse(answer=answer, trace=trace_payload)
 
@@ -83,7 +160,12 @@ def chat_stream(request: ChatRequest):
     messages = [item.model_dump() for item in request.history]
     messages.append({"role": "user", "content": request.message})
 
-    executor = _build_executor(request.temperature, request.max_results)
+    executor = _build_executor(request.temperature, request.max_results, request.tool_names)
+
+    conv_id = request.conversation_id or f"conv-{datetime.now().timestamp()}"
+    now = datetime.now().isoformat()
+    save_conversation(conv_id, request.title or "New chat", now, now)
+    save_message(f"user-{datetime.now().timestamp()}", conv_id, "user", request.message, now)
 
     async def event_stream():
         yield _sse("status", {"state": "thinking"})
@@ -96,6 +178,7 @@ def chat_stream(request: ChatRequest):
             yield _sse("chunk", {"text": chunk})
             await asyncio.sleep(0)
 
+        save_message(f"assistant-{datetime.now().timestamp()}", conv_id, "assistant", answer, now)
         yield _sse("done", {"answer": answer})
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

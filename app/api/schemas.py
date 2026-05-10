@@ -13,6 +13,9 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     message: str = Field(..., description="New user message")
     history: list[ChatMessage] = Field(default_factory=list)
+    conversation_id: str | None = Field(default=None, description="Conversation ID for persistence")
+    title: str | None = Field(default=None, description="Conversation title")
+    tool_names: list[str] | None = Field(default=None, description="List of tools to use")
     temperature: float = 0.2
     max_results: int = 5
     debug: bool = False

@@ -1,29 +1,60 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-const STORAGE_KEY = 'react-agent.conversations.v1'
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
 const createConversation = () => ({
-  id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(),
+  id: `conv-${Date.now()}`,
   title: 'New chat',
   createdAt: Date.now(),
   messages: [],
 })
 
-const loadConversations = () => {
+const loadConversationsFromApi = async () => {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return [createConversation()]
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed) || parsed.length === 0) return [createConversation()]
-    return parsed
+    const res = await fetch(`${API_BASE}/api/conversations`)
+    if (!res.ok) return [createConversation()]
+    const data = await res.json()
+    if (!Array.isArray(data) || data.length === 0) return [createConversation()]
+    return data.map((c) => ({
+      id: c.id,
+      title: c.title,
+      createdAt: new Date(c.created_at).getTime(),
+      messages: [],
+    }))
   } catch {
     return [createConversation()]
   }
 }
 
-const saveConversations = (conversations) => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations))
+const loadMessagesFromApi = async (convId) => {
+  try {
+    const res = await fetch(`${API_BASE}/api/conversations/${convId}/messages`)
+    if (!res.ok) return []
+    const data = await res.json()
+    return data.map((m) => ({
+      id: m.id,
+      role: m.role,
+      content: m.content,
+    }))
+  } catch {
+    return []
+  }
+}
+
+const deleteConversationApi = async (convId) => {
+  try {
+    await fetch(`${API_BASE}/api/conversations/${convId}`, { method: 'DELETE' })
+  } catch {}
+}
+
+const updateTitleApi = async (convId, title) => {
+  try {
+    await fetch(`${API_BASE}/api/conversations/${convId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title }),
+    })
+  } catch {}
 }
 
 const chunkedHistory = (messages) =>
@@ -41,14 +72,20 @@ const parseSsePayload = (text) => {
 }
 
 function App() {
-  const [conversations, setConversations] = useState(loadConversations)
+  const [conversations, setConversations] = useState([])
   const [activeId, setActiveId] = useState(null)
+  const [messages, setMessages] = useState([])
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [isThinking, setIsThinking] = useState(false)
   const [statusText, setStatusText] = useState('')
   const [inputValue, setInputValue] = useState('')
+  const [loaded, setLoaded] = useState(false)
+  const [availableTools, setAvailableTools] = useState([])
+  const [selectedTools, setSelectedTools] = useState([])
+  const [showTools, setShowTools] = useState(false)
   const bottomRef = useRef(null)
+  const toolsRef = useRef(null)
 
   const activeConversation = useMemo(
     () => conversations.find((item) => item.id === activeId) || conversations[0],
@@ -56,64 +93,73 @@ function App() {
   )
 
   useEffect(() => {
-    saveConversations(conversations)
-  }, [conversations])
+    const handleClickOutside = (event) => {
+      if (toolsRef.current && !toolsRef.current.contains(event.target)) {
+        setShowTools(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   useEffect(() => {
-    if (!activeId && conversations.length > 0) {
-      setActiveId(conversations[0].id)
-      return
+    if (!loaded) {
+      loadConversationsFromApi().then((data) => {
+        setConversations(data)
+        setLoaded(true)
+      })
     }
-    if (activeId && !conversations.some((item) => item.id === activeId)) {
-      setActiveId(conversations[0]?.id || null)
+    fetch(`${API_BASE}/api/tools`)
+      .then((r) => r.json())
+      .then((data) => setAvailableTools(data.tools || []))
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (activeId && loaded) {
+      loadMessagesFromApi(activeId).then(setMessages)
     }
-  }, [activeId, conversations])
+  }, [activeId, loaded])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [activeConversation?.messages, isThinking, statusText])
-
-  const updateConversation = (id, updater) => {
-    setConversations((prev) =>
-      prev.map((conversation) =>
-        conversation.id === id ? updater(conversation) : conversation,
-      ),
-    )
-  }
+  }, [messages, isThinking, statusText])
 
   const createNewChat = () => {
     const fresh = createConversation()
     setConversations((prev) => [fresh, ...prev])
     setActiveId(fresh.id)
+    setMessages([])
     setSidebarOpen(false)
   }
 
   const sendMessage = async () => {
     const trimmed = inputValue.trim()
-    if (!trimmed || !activeConversation) return
+    if (!trimmed || !activeId) return
 
-    const history = chunkedHistory(activeConversation.messages)
-    const assistantId = `assistant-${Date.now()}`
+    const history = chunkedHistory(messages)
+    const currentConv = conversations.find((c) => c.id === activeId)
+    const title = currentConv?.title === 'New chat' ? trimmed.slice(0, 42) : currentConv?.title
 
-    updateConversation(activeConversation.id, (conversation) => {
-      const nextMessages = [
-        ...conversation.messages,
-        { id: `user-${Date.now()}`, role: 'user', content: trimmed },
-        { id: assistantId, role: 'assistant', content: '' },
-      ]
-      const title = conversation.title === 'New chat' ? trimmed.slice(0, 42) : conversation.title
-      return { ...conversation, title, messages: nextMessages }
-    })
+    const userMsg = { id: `user-${Date.now()}`, role: 'user', content: trimmed }
+    setMessages((prev) => [...prev, userMsg, { id: `assistant-${Date.now()}`, role: 'assistant', content: '' }])
 
     setInputValue('')
     setIsThinking(true)
     setStatusText('Thinking...')
+    setShowTools(false)
 
     try {
       const response = await fetch(`${API_BASE}/api/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: trimmed, history }),
+        body: JSON.stringify({
+          message: trimmed,
+          history,
+          conversation_id: activeId,
+          title,
+          tool_names: selectedTools.length > 0 ? selectedTools : null,
+        }),
       })
 
       if (!response.body) {
@@ -150,31 +196,30 @@ function App() {
           }
 
           if (event === 'chunk') {
-            updateConversation(activeConversation.id, (conversation) => {
-              const updated = conversation.messages.map((message) =>
-                message.id === assistantId
-                  ? { ...message, content: `${message.content}${payload.text || ''}` }
-                  : message,
-              )
-              return { ...conversation, messages: updated }
-            })
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.role === 'assistant'
+                  ? { ...m, content: `${m.content}${payload.text || ''}` }
+                  : m,
+              ),
+            )
           }
 
           if (event === 'done') {
             setIsThinking(false)
             setStatusText('')
+            loadConversationsFromApi().then(setConversations)
           }
         }
       }
     } catch (error) {
-      updateConversation(activeConversation.id, (conversation) => {
-        const updated = conversation.messages.map((message) =>
-          message.id === assistantId
-            ? { ...message, content: `Error: ${error.message}` }
-            : message,
-        )
-        return { ...conversation, messages: updated }
-      })
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.role === 'assistant'
+            ? { ...m, content: `Error: ${error.message}` }
+            : m,
+        ),
+      )
       setIsThinking(false)
       setStatusText('')
     }
@@ -240,7 +285,7 @@ function App() {
           {conversations.map((conversation) => (
             <div
               key={conversation.id}
-              className={`conversation-item ${conversation.id === activeConversation?.id ? 'active' : ''}`}
+              className={`conversation-item ${conversation.id === activeId ? 'active' : ''}`}
               onClick={() => {
                 setActiveId(conversation.id)
                 setSidebarOpen(false)
@@ -251,10 +296,11 @@ function App() {
               <div className="conversation-actions" onClick={(e) => e.stopPropagation()}>
                 <button
                   className="action-btn"
-                  onClick={() => {
+                  onClick={async () => {
                     const newTitle = prompt('Edit chat name:', conversation.title)
                     if (newTitle && newTitle.trim()) {
-                      updateConversation(conversation.id, (c) => ({ ...c, title: newTitle.trim() }))
+                      await updateTitleApi(conversation.id, newTitle.trim())
+                      loadConversationsFromApi().then(setConversations)
                     }
                   }}
                   aria-label="Edit chat name"
@@ -263,8 +309,9 @@ function App() {
                 </button>
                 <button
                   className="action-btn delete"
-                  onClick={() => {
+                  onClick={async () => {
                     if (confirm('Delete this chat?')) {
+                      await deleteConversationApi(conversation.id)
                       setConversations((prev) => prev.filter((c) => c.id !== conversation.id))
                     }
                   }}
@@ -287,7 +334,7 @@ function App() {
         </header>
 
         <section className="message-list">
-          {activeConversation?.messages.map((message) => (
+          {messages.map((message) => (
             <div key={message.id} className={`message-bubble ${message.role}`}>
               <span className="message-text">{linkify(message.content)}</span>
             </div>
@@ -301,7 +348,55 @@ function App() {
           <div ref={bottomRef} />
         </section>
 
-        <footer className="composer">
+        <footer className="composer" style={{ position: 'relative', zIndex: 60 }}>
+          <div className="tools-container" ref={toolsRef}>
+            <button
+              className={`tool-btn ${showTools ? 'active' : ''} ${selectedTools.length > 0 ? 'has-selection' : ''}`}
+              onClick={() => setShowTools(!showTools)}
+              aria-label="Select tools"
+            >
+              <span className="tool-btn-icon">+</span>
+              {selectedTools.length > 0 && !showTools && (
+                <span className="tool-badge">{selectedTools.length}</span>
+              )}
+            </button>
+
+            {showTools && (
+              <div className="tools-box">
+                <div className="tools-box-header">
+                  <div className="header-left">
+                    <h3>Available Tools</h3>
+                    {selectedTools.length > 0 && (
+                      <span className="selected-count">{selectedTools.length}</span>
+                    )}
+                  </div>
+                  {selectedTools.length > 0 && (
+                    <button className="clear-btn" onClick={() => setSelectedTools([])}>
+                      Clear
+                    </button>
+                  )}
+                </div>
+                <div className="tools-list">
+                  {availableTools.map((tool) => (
+                    <div
+                      key={tool.name}
+                      className={`tool-item ${selectedTools.includes(tool.name) ? 'selected' : ''}`}
+                      onClick={() => {
+                        if (selectedTools.includes(tool.name)) {
+                          setSelectedTools((prev) => prev.filter((t) => t !== tool.name))
+                        } else {
+                          setSelectedTools((prev) => [...prev, tool.name])
+                        }
+                      }}
+                    >
+                      <div className="tool-item-name">{tool.name}</div>
+                      <div className="tool-item-desc">{tool.description}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
           <textarea
             placeholder="Ask something current..."
             value={inputValue}
@@ -309,7 +404,7 @@ function App() {
             onKeyDown={handleKeyDown}
             rows={1}
           />
-          <button className="primary" onClick={sendMessage} disabled={isThinking} aria-label="Send">
+          <button className="primary" onClick={sendMessage} disabled={isThinking} aria-label="Send" style={{ position: 'relative', zIndex: 61 }}>
             <span className="send-label">Send</span>
             <span className="send-icon">➤</span>
           </button>
