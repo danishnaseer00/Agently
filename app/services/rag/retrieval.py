@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from app.services.rag.config import RAGConfig
 from app.services.rag.vector_db import VectorStore
 from app.services.rag.hybrid_search import HybridSearcher
@@ -48,8 +49,9 @@ class RAGRetrieval:
             top_k = RAGConfig.TOP_K_RERANK
 
         print(f"[RAGRetrieval] Starting retrieval for query: {query[:60]}...")
+        print(f"[RAGRetrieval] Collection: {collection_name}, Doc IDs: {doc_ids}")
 
-        # Step 1: Hybrid search
+        # Step 1: Hybrid search with retry for background indexing
         chunks = self.hybrid_searcher.hybrid_search(
             self.vector_store,
             collection_name,
@@ -57,6 +59,18 @@ class RAGRetrieval:
             doc_ids,
             top_k=RAGConfig.TOP_K_RETRIEVAL,
         )
+
+        # Retry once if no chunks found (background indexing may still be in progress)
+        if not chunks:
+            print("[RAGRetrieval] No chunks found on first attempt, waiting for background indexing...")
+            time.sleep(1)
+            chunks = self.hybrid_searcher.hybrid_search(
+                self.vector_store,
+                collection_name,
+                query,
+                doc_ids,
+                top_k=RAGConfig.TOP_K_RETRIEVAL,
+            )
 
         if not chunks:
             print("[RAGRetrieval] No chunks found, returning empty list")
@@ -82,13 +96,9 @@ class RAGRetrieval:
         print(f"[RAGRetrieval] Deleted collection {collection_name}")
 
 
-# Global RAG retrieval instance
-_rag_retrieval = None
+from functools import lru_cache
 
-
+@lru_cache(maxsize=1)
 def get_rag_retrieval() -> RAGRetrieval:
-    """Get or create global RAG retrieval instance."""
-    global _rag_retrieval
-    if _rag_retrieval is None:
-        _rag_retrieval = RAGRetrieval()
-    return _rag_retrieval
+    """Get or create global RAG retrieval instance (singleton)."""
+    return RAGRetrieval()

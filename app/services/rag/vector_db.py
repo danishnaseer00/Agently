@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
@@ -26,8 +27,12 @@ class VectorStore:
                 api_key=self.config.API_KEY,
             )
         else:
-            print("[VectorStore] Using local in-memory Qdrant")
-            self.client = QdrantClient(":memory:")
+            print("[VectorStore] Using local persistent Qdrant")
+            # Use persistent local storage instead of in-memory
+            db_path = self.snapshot_dir / "qdrant_db"
+            db_path.mkdir(parents=True, exist_ok=True)
+            self.client = QdrantClient(path=str(db_path))
+            print(f"[VectorStore] Qdrant database at: {db_path}")
 
     def get_or_create_collection(self, collection_name: str) -> None:
         """Create collection if it doesn't exist."""
@@ -59,7 +64,7 @@ class VectorStore:
 
         points = []
         for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-            point_id = hash(f"{doc_id}:{i}") & 0x7FFFFFFF
+            point_id = int(hashlib.md5(f"{doc_id}:{i}".encode()).hexdigest(), 16) % (2**31 - 1)
             points.append(
                 PointStruct(
                     id=point_id,
@@ -71,15 +76,12 @@ class VectorStore:
                     },
                 )
             )
+            print(f"[VectorStore] Created point id={point_id} for chunk {i} (doc_id={doc_id})")
 
         self.client.upsert(collection_name=collection_name, points=points)
         self.collection_count += len(points)
 
         print(f"[VectorStore] Indexed {len(points)} chunks in collection: {collection_name}")
-
-        # Save snapshot periodically (only for local mode)
-        if self.config.MODE == "memory" and self.collection_count % RAGConfig.SNAPSHOT_INTERVAL == 0:
-            self._save_snapshot(collection_name)
 
     def semantic_search(
         self,
@@ -92,19 +94,25 @@ class VectorStore:
         try:
             query_vector = embed_texts([query])[0]
 
-            search_result = self.client.search(
+            search_result = self.client.query_points(
                 collection_name=collection_name,
-                query_vector=query_vector,
+                query=query_vector,
                 limit=top_k * 2,
             )
 
+            points = search_result.points if hasattr(search_result, "points") else search_result
+            print(f"[VectorStore] Semantic search: looking for doc_ids={doc_ids}, found {len(points)} hits")
+
             results = []
-            for hit in search_result:
-                if doc_ids is None or hit.payload.get("doc_id") in doc_ids:
+            for hit in points:
+                payload_doc_id = hit.payload.get("doc_id")
+                print(f"[VectorStore] Hit payload doc_id={payload_doc_id}, matches={payload_doc_id in (doc_ids or [])}")
+
+                if doc_ids is None or payload_doc_id in doc_ids:
                     results.append(
                         {
                             "content": hit.payload.get("content", ""),
-                            "doc_id": hit.payload.get("doc_id"),
+                            "doc_id": payload_doc_id,
                             "chunk_index": hit.payload.get("chunk_index"),
                             "score": hit.score,
                             "type": "semantic",
@@ -119,6 +127,27 @@ class VectorStore:
             print(f"[VectorStore] Semantic search error: {exc}")
             return []
 
+    def delete_by_doc_id(self, collection_name: str, doc_id: str) -> None:
+        """Delete all chunks belonging to a document."""
+        try:
+            from qdrant_client import models
+            self.client.delete(
+                collection_name=collection_name,
+                points_selector=models.FilterSelector(
+                    filter=models.Filter(
+                        must=[
+                            models.FieldCondition(
+                                key="doc_id",
+                                match=models.MatchValue(value=doc_id),
+                            )
+                        ]
+                    )
+                ),
+            )
+            print(f"[VectorStore] Deleted all chunks for doc_id: {doc_id}")
+        except Exception as exc:
+            print(f"[VectorStore] Delete by doc_id error: {exc}")
+
     def delete_collection(self, collection_name: str) -> None:
         """Delete entire collection."""
         try:
@@ -128,8 +157,8 @@ class VectorStore:
             print(f"[VectorStore] Delete collection error: {exc}")
 
     def _save_snapshot(self, collection_name: str) -> None:
-        """Save snapshot of collection to disk (local mode only)."""
-        if self.config.MODE != "memory":
+        """Save snapshot of collection to disk."""
+        if self.config.MODE == "remote":
             return
 
         try:
@@ -143,8 +172,8 @@ class VectorStore:
             print(f"[VectorStore] Snapshot save error: {exc}")
 
     def _load_snapshot(self, collection_name: str) -> None:
-        """Load snapshot from disk if it exists (local mode only)."""
-        if self.config.MODE != "memory":
+        """Load snapshot from disk if it exists."""
+        if self.config.MODE == "remote":
             return
 
         try:

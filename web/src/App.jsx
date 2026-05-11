@@ -118,11 +118,10 @@ function App() {
   const [documents, setDocuments] = useState([])
   const [selectedDocuments, setSelectedDocuments] = useState([])
   const [useRag, setUseRag] = useState(false)
-  const [showDocuments, setShowDocuments] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [uploadSuccess, setUploadSuccess] = useState('')
   const bottomRef = useRef(null)
   const toolsRef = useRef(null)
-  const documentsRef = useRef(null)
   const fileInputRef = useRef(null)
 
   const activeConversation = useMemo(
@@ -139,6 +138,13 @@ function App() {
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
+
+  useEffect(() => {
+    if (uploadSuccess) {
+      const timer = setTimeout(() => setUploadSuccess(''), 3000)
+      return () => clearTimeout(timer)
+    }
+  }, [uploadSuccess])
 
   useEffect(() => {
     if (!loaded) {
@@ -480,155 +486,6 @@ function App() {
         </section>
 
         <footer className="composer" style={{ position: 'relative', zIndex: 60 }}>
-          {/* Documents Container */}
-          <div className="documents-container" ref={documentsRef} style={{ position: 'relative' }}>
-            <button
-              className={`doc-btn ${showDocuments ? 'active' : ''} ${selectedDocuments.length > 0 ? 'has-selection' : ''}`}
-              onClick={() => setShowDocuments(!showDocuments)}
-              aria-label="Manage documents"
-              title="Upload and manage documents for RAG"
-            >
-              <span className="doc-btn-icon">📄</span>
-              {selectedDocuments.length > 0 && !showDocuments && (
-                <span className="doc-badge">{selectedDocuments.length}</span>
-              )}
-            </button>
-
-            {showDocuments && (
-              <div className="documents-box" style={{ position: 'absolute', bottom: '100%', right: 0, marginBottom: '10px', zIndex: 70 }}>
-                <div className="documents-box-header">
-                  <div className="header-left">
-                    <h3 style={{ margin: '0 0 0 0', fontSize: '0.9rem' }}>Documents</h3>
-                    {selectedDocuments.length > 0 && (
-                      <span className="selected-count" style={{ marginLeft: '8px', background: '#111827', color: '#fff', padding: '2px 6px', borderRadius: '3px', fontSize: '0.8rem' }}>
-                        {selectedDocuments.length}
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    {selectedDocuments.length > 0 && (
-                      <button className="clear-btn" onClick={() => setSelectedDocuments([])} style={{ fontSize: '0.8rem' }}>
-                        Deselect All
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div style={{ marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px solid #e5e7eb' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={useRag}
-                      onChange={(e) => setUseRag(e.target.checked)}
-                      disabled={selectedDocuments.length === 0}
-                    />
-                    Use RAG
-                  </label>
-                </div>
-
-                <div style={{ marginBottom: '12px' }}>
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={uploading}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      background: '#111827',
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: '6px',
-                      cursor: uploading ? 'not-allowed' : 'pointer',
-                      opacity: uploading ? 0.6 : 1,
-                      fontSize: '0.9rem',
-                    }}
-                  >
-                    {uploading ? 'Uploading...' : 'Upload File'}
-                  </button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".pdf,.txt,.docx"
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0]
-                      if (file && activeId) {
-                        setUploading(true)
-                        const result = await uploadDocumentToApi(file, activeId)
-                        setUploading(false)
-                        if (result) {
-                          await loadDocumentsFromApi(activeId).then(setDocuments)
-                          fileInputRef.current.value = ''
-                        }
-                      }
-                    }}
-                    style={{ display: 'none' }}
-                  />
-                </div>
-
-                <div className="documents-list" style={{ maxHeight: '300px', overflowY: 'auto', borderRadius: '6px', border: '1px solid #e5e7eb' }}>
-                  {documents.length === 0 ? (
-                    <div style={{ padding: '12px', textAlign: 'center', color: '#6b7280', fontSize: '0.9rem' }}>
-                      No documents uploaded
-                    </div>
-                  ) : (
-                    documents.map((doc) => (
-                      <div
-                        key={doc.id}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                          padding: '10px',
-                          borderBottom: '1px solid #e5e7eb',
-                          cursor: 'pointer',
-                        }}
-                        onClick={() => {
-                          if (selectedDocuments.includes(doc.id)) {
-                            setSelectedDocuments((prev) => prev.filter((id) => id !== doc.id))
-                          } else {
-                            setSelectedDocuments((prev) => [...prev, doc.id])
-                          }
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedDocuments.includes(doc.id)}
-                          onChange={() => {}}
-                          style={{ cursor: 'pointer' }}
-                        />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: '0.85rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {doc.filename}
-                          </div>
-                          <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
-                            {doc.chunk_count} chunks · {(doc.size_bytes / 1024).toFixed(1)}KB
-                          </div>
-                        </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            deleteDocumentFromApi(doc.id, activeId).then(() => {
-                              setDocuments((prev) => prev.filter((d) => d.id !== doc.id))
-                              setSelectedDocuments((prev) => prev.filter((id) => id !== doc.id))
-                            })
-                          }}
-                          style={{
-                            background: 'transparent',
-                            border: 'none',
-                            cursor: 'pointer',
-                            fontSize: '0.9rem',
-                            padding: '4px',
-                          }}
-                          title="Delete document"
-                        >
-                          🗑
-                        </button>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
           <div className="tools-container" ref={toolsRef}>
             <button
               className={`tool-btn ${showTools ? 'active' : ''} ${selectedTools.length > 0 ? 'has-selection' : ''}`}
@@ -643,36 +500,199 @@ function App() {
 
             {showTools && (
               <div className="tools-box">
-                <div className="tools-box-header">
-                  <div className="header-left">
-                    <h3>Available Tools</h3>
-                    {selectedTools.length > 0 && (
-                      <span className="selected-count">{selectedTools.length}</span>
+                {/* Documents Section */}
+                <div style={{ paddingBottom: '12px', borderBottom: '1px solid #e5e7eb' }}>
+                  <div className="tools-box-header" style={{ paddingBottom: '8px' }}>
+                    <div className="header-left">
+                      <h3 style={{ margin: 0, fontSize: '0.9rem' }}>📄 Documents</h3>
+                      {selectedDocuments.length > 0 && (
+                        <span className="selected-count" style={{ fontSize: '0.75rem' }}>
+                          {selectedDocuments.length}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{ marginBottom: '8px', marginTop: '8px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={useRag}
+                        onChange={(e) => setUseRag(e.target.checked)}
+                        disabled={selectedDocuments.length === 0}
+                      />
+                      Use RAG
+                    </label>
+                  </div>
+
+                  <div style={{ marginBottom: '8px' }}>
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploading}
+                      style={{
+                        width: '100%',
+                        padding: '6px 10px',
+                        background: '#111827',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: uploading ? 'not-allowed' : 'pointer',
+                        opacity: uploading ? 0.6 : 1,
+                        fontSize: '0.8rem',
+                        fontWeight: 500,
+                      }}
+                    >
+                      {uploading ? 'Uploading...' : '+ Upload File'}
+                    </button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".pdf,.txt,.docx"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0]
+                        if (file && activeId) {
+                          setUploading(true)
+                          const result = await uploadDocumentToApi(file, activeId)
+                          setUploading(false)
+                          if (result) {
+                            setUploadSuccess(`Uploaded: ${file.name}`)
+                            await loadDocumentsFromApi(activeId).then((docs) => {
+                              setDocuments(docs)
+                              // Auto-select the newly uploaded document
+                              if (result.document_id) {
+                                setSelectedDocuments((prev) => [...prev, result.document_id])
+                              }
+                            })
+                            fileInputRef.current.value = ''
+                          }
+                        }
+                      }}
+                      style={{ display: 'none' }}
+                    />
+                  </div>
+
+                  {uploadSuccess && (
+                    <div style={{
+                      padding: '6px 8px',
+                      background: '#dcfce7',
+                      color: '#166534',
+                      borderRadius: '4px',
+                      fontSize: '0.75rem',
+                      marginBottom: '8px',
+                    }}>
+                      ✓ {uploadSuccess}
+                    </div>
+                  )}
+
+                  <div style={{ maxHeight: '200px', overflowY: 'auto', fontSize: '0.85rem' }}>
+                    {documents.length === 0 ? (
+                      <div style={{ padding: '8px', textAlign: 'center', color: '#6b7280' }}>
+                        No documents
+                      </div>
+                    ) : (
+                      documents.map((doc) => (
+                        <div
+                          key={doc.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '6px',
+                            borderRadius: '4px',
+                            background: selectedDocuments.includes(doc.id) ? '#f3f4f6' : 'transparent',
+                            cursor: 'pointer',
+                            marginBottom: '4px',
+                          }}
+                          onClick={() => {
+                            if (selectedDocuments.includes(doc.id)) {
+                              setSelectedDocuments((prev) => prev.filter((id) => id !== doc.id))
+                            } else {
+                              setSelectedDocuments((prev) => [...prev, doc.id])
+                            }
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedDocuments.includes(doc.id)}
+                            onChange={() => {}}
+                            style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                          />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: '0.8rem', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {doc.filename}
+                            </div>
+                            <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>
+                              {(doc.size_bytes / 1024).toFixed(1)}KB
+                            </div>
+                          </div>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              deleteDocumentFromApi(doc.id, activeId).then(() => {
+                                setDocuments((prev) => prev.filter((d) => d.id !== doc.id))
+                                setSelectedDocuments((prev) => prev.filter((id) => id !== doc.id))
+                              })
+                            }}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              cursor: 'pointer',
+                              fontSize: '0.8rem',
+                              padding: '2px',
+                            }}
+                            title="Delete document"
+                          >
+                            🗑
+                          </button>
+                        </div>
+                      ))
                     )}
                   </div>
-                  {selectedTools.length > 0 && (
-                    <button className="clear-btn" onClick={() => setSelectedTools([])}>
-                      Clear
+
+                  {selectedDocuments.length > 0 && (
+                    <button
+                      className="clear-btn"
+                      onClick={() => setSelectedDocuments([])}
+                      style={{ width: '100%', marginTop: '8px', fontSize: '0.75rem' }}
+                    >
+                      Deselect All
                     </button>
                   )}
                 </div>
-                <div className="tools-list">
-                  {availableTools.map((tool) => (
-                    <div
-                      key={tool.name}
-                      className={`tool-item ${selectedTools.includes(tool.name) ? 'selected' : ''}`}
-                      onClick={() => {
-                        if (selectedTools.includes(tool.name)) {
-                          setSelectedTools((prev) => prev.filter((t) => t !== tool.name))
-                        } else {
-                          setSelectedTools((prev) => [...prev, tool.name])
-                        }
-                      }}
-                    >
-                      <div className="tool-item-name">{tool.name}</div>
-                      <div className="tool-item-desc">{tool.description}</div>
+
+                {/* Tools Section */}
+                <div>
+                  <div className="tools-box-header" style={{ paddingBottom: '8px' }}>
+                    <div className="header-left">
+                      <h3 style={{ margin: 0, fontSize: '0.9rem' }}>Available Tools</h3>
+                      {selectedTools.length > 0 && (
+                        <span className="selected-count">{selectedTools.length}</span>
+                      )}
                     </div>
-                  ))}
+                  </div>
+                  <div className="tools-list">
+                    {availableTools.map((tool) => (
+                      <div
+                        key={tool.name}
+                        className={`tool-item ${selectedTools.includes(tool.name) ? 'selected' : ''}`}
+                        onClick={() => {
+                          if (selectedTools.includes(tool.name)) {
+                            setSelectedTools((prev) => prev.filter((t) => t !== tool.name))
+                          } else {
+                            setSelectedTools((prev) => [...prev, tool.name])
+                          }
+                        }}
+                      >
+                        <div className="tool-item-name">{tool.name}</div>
+                        <div className="tool-item-desc">{tool.description}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {selectedTools.length > 0 && (
+                    <button className="clear-btn" onClick={() => setSelectedTools([])} style={{ width: '100%', marginTop: '8px' }}>
+                      Clear
+                    </button>
+                  )}
                 </div>
               </div>
             )}

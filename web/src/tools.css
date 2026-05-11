@@ -68,7 +68,7 @@
   position: absolute;
   bottom: calc(100% + 12px);
   left: 0;
-  width: 320px;
+  width: 360px;
   background: #ffffff;
   border: 1px solid var(--border);
   border-radius: 16px;
@@ -79,6 +79,8 @@
   flex-direction: column;
   gap: 12px;
   animation: slideUp 0.2s ease-out;
+  max-height: 70vh;
+  overflow-y: auto;
 }
 
 @keyframes slideUp {
@@ -199,5 +201,6 @@
   .tools-box {
     width: calc(100vw - 32px);
     left: 0;
+    max-height: 60vh;
   }
 }

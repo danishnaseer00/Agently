@@ -7,6 +7,13 @@ from datetime import datetime
 from functools import lru_cache
 from typing import Iterable, Optional
 
+from dotenv import load_dotenv
+from pathlib import Path
+
+# Load .env immediately at module import
+_env_path = Path(__file__).resolve().parents[2] / ".env"
+load_dotenv(dotenv_path=_env_path, override=False)
+
 from fastapi import FastAPI, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -121,24 +128,58 @@ def list_tools() -> dict:
 
 @app.get("/api/health")
 def health() -> dict[str, str]:
+    import sys
+    print("[API] Health check received", file=sys.stderr)
     return {"status": "ok"}
+
+
+@app.post("/api/test-upload")
+async def test_upload(file: UploadFile) -> dict:
+    import sys
+    print(f"[API] Test upload called with file: {file.filename}", file=sys.stderr)
+    return {"status": "ok", "filename": file.filename}
+
+
+async def _index_document_background(doc_id: str, conversation_id: str, chunks: list[str]) -> None:
+    """Index document in background."""
+    try:
+        import sys
+        print(f"[API] Starting background indexing for {doc_id}", file=sys.stderr)
+        rag = get_rag_retrieval()
+        # Don't add "conv-" prefix if it already exists
+        collection_name = conversation_id if conversation_id.startswith("conv-") else f"conv-{conversation_id}"
+        print(f"[API] Using collection: {collection_name}", file=sys.stderr)
+        print(f"[API] Indexing {len(chunks)} chunks", file=sys.stderr)
+        rag.index_document(collection_name, doc_id, chunks)
+        print(f"[API] Document {doc_id} indexed successfully", file=sys.stderr)
+    except Exception as exc:
+        import sys
+        import traceback
+        print(f"[API] Background indexing error for {doc_id}: {exc}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
 
 
 @app.post("/api/documents/upload")
 async def upload_document(file: UploadFile, conversation_id: str) -> dict:
     """Upload and index a document for RAG."""
+    import sys
     try:
+        print(f"[API] Upload started: file={file.filename}, conv_id={conversation_id}", file=sys.stderr)
+
         # Save file to temp location
         with tempfile.NamedTemporaryFile(delete=False, suffix=".tmp") as tmp:
             content = await file.read()
             tmp.write(content)
             tmp_path = tmp.name
+        print(f"[API] File saved to temp: {tmp_path}", file=sys.stderr)
 
         # Detect content type
         content_type = file.content_type or "text/plain"
+        print(f"[API] Content type: {content_type}", file=sys.stderr)
 
         # Parse document
         text = parse_document(tmp_path, content_type)
+        print(f"[API] Document parsed, length: {len(text)}", file=sys.stderr)
 
         # Recursive chunking
         from app.services.rag.config import RAGConfig
@@ -147,9 +188,11 @@ async def upload_document(file: UploadFile, conversation_id: str) -> dict:
             chunk_size=RAGConfig.CHUNK_SIZE,
             overlap=RAGConfig.CHUNK_OVERLAP,
         )
+        print(f"[API] Created {len(chunks)} chunks", file=sys.stderr)
 
         # Generate document ID
         doc_id = f"doc-{datetime.now().timestamp()}"
+        print(f"[API] Generated doc_id: {doc_id}", file=sys.stderr)
 
         # Save to database
         metadata = json.dumps({
@@ -157,16 +200,18 @@ async def upload_document(file: UploadFile, conversation_id: str) -> dict:
             "chunk_count": len(chunks),
         })
         save_document(doc_id, conversation_id, file.filename, content_type, len(content), metadata)
+        print(f"[API] Saved to database", file=sys.stderr)
 
         # Save chunks
         for idx, chunk in enumerate(chunks):
             chunk_id = f"chunk-{doc_id}-{idx}"
             save_document_chunk(chunk_id, doc_id, idx, chunk, len(chunk))
+        print(f"[API] Saved all chunk metadata", file=sys.stderr)
 
-        # Index in RAG system
-        rag = get_rag_retrieval()
-        collection_name = f"conv-{conversation_id}"
-        rag.index_document(collection_name, doc_id, chunks)
+        # Index in background (non-blocking)
+        print(f"[API] Creating background task for indexing", file=sys.stderr)
+        asyncio.create_task(_index_document_background(doc_id, conversation_id, chunks))
+        print(f"[API] Background task created", file=sys.stderr)
 
         import os
         os.unlink(tmp_path)
@@ -175,10 +220,13 @@ async def upload_document(file: UploadFile, conversation_id: str) -> dict:
             "document_id": doc_id,
             "filename": file.filename,
             "chunk_count": len(chunks),
-            "status": "indexed",
+            "status": "uploading",
         }
     except Exception as exc:
-        print(f"[API] Upload error: {exc}")
+        import sys
+        import traceback
+        print(f"[API] Upload error: {exc}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
         return {"error": str(exc), "status": "failed"}
 
 
@@ -207,9 +255,9 @@ def delete_doc(doc_id: str, conversation_id: str) -> dict[str, str]:
     """Delete a document and its embeddings."""
     try:
         # Delete from vector DB
-        collection_name = f"conv-{conversation_id}"
-        vector_db = get_vector_db()
-        # Note: Qdrant doesn't have direct doc_id delete, but chunks are keyed by doc_id
+        collection_name = conversation_id if conversation_id.startswith("conv-") else f"conv-{conversation_id}"
+        rag = get_rag_retrieval()
+        rag.vector_store.delete_by_doc_id(collection_name, doc_id)
 
         # Delete from database
         delete_document(doc_id)
@@ -222,7 +270,10 @@ def delete_doc(doc_id: str, conversation_id: str) -> dict[str, str]:
 
 @app.on_event("startup")
 def startup():
+    from app.services.rag.config import RAGConfig
     init_db()
+    get_settings()  # Load .env file
+    RAGConfig.validate()  # Validate Qdrant configuration
 
 
 @app.get("/api/conversations")
@@ -249,6 +300,7 @@ def update_title(conv_id: str, request: UpdateTitleRequest) -> dict[str, str]:
 
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(request: ChatRequest) -> ChatResponse:
+    import sys
     messages = [item.model_dump() for item in request.history]
     messages.append({"role": "user", "content": request.message})
 
@@ -256,18 +308,29 @@ def chat(request: ChatRequest) -> ChatResponse:
 
     # Retrieve documents if RAG is enabled
     doc_context = None
+    print(f"[API] Chat request: use_rag={request.use_rag}, doc_ids={request.document_ids}, conv_id={request.conversation_id}", file=sys.stderr)
+
     if request.use_rag and request.document_ids and request.conversation_id:
         try:
+            print(f"[API] RAG enabled, retrieving documents...", file=sys.stderr)
             rag = get_rag_retrieval()
-            collection_name = f"conv-{request.conversation_id}"
+            # Don't add "conv-" prefix if it already exists
+            collection_name = request.conversation_id if request.conversation_id.startswith("conv-") else f"conv-{request.conversation_id}"
+            print(f"[API] Collection: {collection_name}, Doc IDs: {request.document_ids}", file=sys.stderr)
             chunks = rag.retrieve(
                 request.message,
                 collection_name,
                 request.document_ids,
             )
+            print(f"[API] Retrieved {len(chunks)} chunks", file=sys.stderr)
             doc_context = rag.format_context(chunks)
+            print(f"[API] Context length: {len(doc_context) if doc_context else 0}", file=sys.stderr)
         except Exception as exc:
-            print(f"[API] RAG retrieval error: {exc}")
+            import traceback
+            print(f"[API] RAG retrieval error: {exc}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+    else:
+        print(f"[API] RAG not enabled - use_rag={request.use_rag}, has_docs={bool(request.document_ids)}, has_conv={bool(request.conversation_id)}", file=sys.stderr)
 
     answer, trace = run_research(executor, request.message, messages, doc_context)
 
@@ -284,6 +347,7 @@ def chat(request: ChatRequest) -> ChatResponse:
 
 @app.post("/api/chat/stream")
 def chat_stream(request: ChatRequest):
+    import sys
     messages = [item.model_dump() for item in request.history]
     messages.append({"role": "user", "content": request.message})
 
@@ -291,18 +355,29 @@ def chat_stream(request: ChatRequest):
 
     # Retrieve documents if RAG is enabled
     doc_context = None
+    print(f"[API] Chat stream request: use_rag={request.use_rag}, doc_ids={request.document_ids}, conv_id={request.conversation_id}", file=sys.stderr)
+
     if request.use_rag and request.document_ids and request.conversation_id:
         try:
+            print(f"[API] RAG enabled, retrieving documents...", file=sys.stderr)
             rag = get_rag_retrieval()
-            collection_name = f"conv-{request.conversation_id}"
+            # Don't add "conv-" prefix if it already exists
+            collection_name = request.conversation_id if request.conversation_id.startswith("conv-") else f"conv-{request.conversation_id}"
+            print(f"[API] Collection: {collection_name}, Doc IDs: {request.document_ids}", file=sys.stderr)
             chunks = rag.retrieve(
                 request.message,
                 collection_name,
                 request.document_ids,
             )
+            print(f"[API] Retrieved {len(chunks)} chunks", file=sys.stderr)
             doc_context = rag.format_context(chunks)
+            print(f"[API] Context length: {len(doc_context) if doc_context else 0}", file=sys.stderr)
         except Exception as exc:
-            print(f"[API] RAG retrieval error: {exc}")
+            import traceback
+            print(f"[API] RAG retrieval error: {exc}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+    else:
+        print(f"[API] RAG not enabled - use_rag={request.use_rag}, has_docs={bool(request.document_ids)}, has_conv={bool(request.conversation_id)}", file=sys.stderr)
 
     conv_id = request.conversation_id or f"conv-{datetime.now().timestamp()}"
     now = datetime.now().isoformat()

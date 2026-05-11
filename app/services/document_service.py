@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from functools import lru_cache
 
 try:
     from pypdf import PdfReader
@@ -13,7 +14,10 @@ try:
 except ImportError:
     DocxDocument = None
 
-from sentence_transformers import SentenceTransformer
+try:
+    from sentence_transformers import SentenceTransformer
+except ImportError:
+    SentenceTransformer = None
 
 
 def parse_pdf(filepath: str) -> str:
@@ -24,9 +28,19 @@ def parse_pdf(filepath: str) -> str:
     try:
         reader = PdfReader(filepath)
         text = ""
-        for page in reader.pages:
-            text += page.extract_text() + "\n"
-        return text.strip()
+        page_texts = []
+        for i, page in enumerate(reader.pages):
+            page_text = page.extract_text()
+            page_text = page_text or ""
+            page_texts.append((i + 1, len(page_text)))
+            text += page_text + "\n"
+        result = text.strip()
+        print(f"[PDF] Parsed {len(reader.pages)} pages, total {len(result)} chars")
+        for pg_num, pg_len in page_texts:
+            print(f"[PDF]   Page {pg_num}: {pg_len} chars")
+        if len(result) < 200 and len(reader.pages) > 1:
+            print("[PDF] WARNING: Very little text extracted. This PDF may be scanned/image-based.")
+        return result
     except Exception as exc:
         raise ValueError(f"Failed to parse PDF: {exc}")
 
@@ -72,6 +86,24 @@ def parse_document(filepath: str, content_type: str) -> str:
             return parse_text(filepath)
 
 
+def _hard_split(text: str, max_chars: int) -> list[str]:
+    """Split text into pieces of at most max_chars, breaking at word boundaries."""
+    if len(text) <= max_chars:
+        return [text]
+    pieces = []
+    while text:
+        if len(text) <= max_chars:
+            pieces.append(text)
+            break
+        # Try to break at last space before max_chars
+        split_at = text.rfind(" ", 0, max_chars)
+        if split_at <= 0:
+            split_at = max_chars
+        pieces.append(text[:split_at])
+        text = text[split_at:].lstrip()
+    return pieces
+
+
 def recursive_chunk_text(
     text: str,
     chunk_size: int = 512,
@@ -79,64 +111,75 @@ def recursive_chunk_text(
 ) -> list[str]:
     """
     Split text into chunks using recursive strategy.
-
-    Strategy:
-    1. Split by paragraphs (double newline)
-    2. If paragraph > chunk_size, split by sentences
-    3. Combine sentences until chunk_size reached
-    4. Add overlap between chunks
+    Falls back to hard character split if no sentence boundaries exist.
     """
+    if not text.strip():
+        return []
+
     # Normalize whitespace
     text = re.sub(r'\n\s*\n', '\n\n', text)
 
     # Split by paragraphs
     paragraphs = text.split('\n\n')
 
-    chunks = []
-    current_chunk = []
+    chunks: list[str] = []
+    current_chunk: list[str] = []
     current_size = 0
+    max_chars = chunk_size * 4  # ~tokens to chars
+
+    def _flush() -> None:
+        nonlocal current_chunk, current_size
+        if current_chunk:
+            chunks.append('\n\n'.join(current_chunk))
+            current_chunk = []
+            current_size = 0
+
+    def _add_piece(piece: str) -> None:
+        nonlocal current_chunk, current_size
+        piece_size = len(piece) // 4
+        if current_size + piece_size > chunk_size and current_chunk:
+            _flush()
+        current_chunk.append(piece)
+        current_size += piece_size
 
     for para in paragraphs:
         para = para.strip()
         if not para:
             continue
 
-        para_size = len(para) // 4  # Approximate tokens (1 token ≈ 4 chars)
+        para_size = len(para) // 4
 
-        if current_size + para_size > chunk_size and current_chunk:
-            # Current chunk is full, save it
-            chunk_text = '\n\n'.join(current_chunk)
-            chunks.append(chunk_text)
+        # If paragraph fits, add it directly
+        if para_size <= chunk_size:
+            _add_piece(para)
+            continue
 
-            # Start overlap: keep last paragraph
-            current_chunk = [para]
-            current_size = para_size
+        # Paragraph is oversized — try sentence splitting
+        sentences = re.split(r'(?<=[.!?])\s+', para)
+        has_real_sentences = len(sentences) > 1
+
+        if has_real_sentences:
+            for sent in sentences:
+                sent = sent.strip()
+                if not sent:
+                    continue
+                sent_size = len(sent) // 4
+                # If a single sentence is still too big, hard-split it
+                if sent_size > chunk_size:
+                    for piece in _hard_split(sent, max_chars):
+                        _add_piece(piece)
+                else:
+                    _add_piece(sent)
         else:
-            # Add paragraph to current chunk
-            current_chunk.append(para)
-            current_size += para_size
+            # No sentence boundaries — hard split by character count
+            for piece in _hard_split(para, max_chars):
+                _add_piece(piece)
 
-    # Add remaining chunk
-    if current_chunk:
-        chunks.append('\n\n'.join(current_chunk))
+    _flush()
 
-    # Apply overlap between chunks
-    if overlap > 0 and len(chunks) > 1:
-        overlapped_chunks = [chunks[0]]
-
-        for i in range(1, len(chunks)):
-            prev_chunk = chunks[i - 1]
-            curr_chunk = chunks[i]
-
-            # Find overlap point (last N chars from previous chunk)
-            overlap_chars = min(len(prev_chunk), overlap * 4)
-            overlap_text = prev_chunk[-overlap_chars:]
-
-            # Prepend overlap to current chunk
-            combined = f"{overlap_text}\n\n{curr_chunk}"
-            overlapped_chunks.append(combined)
-
-        return overlapped_chunks
+    print(f"[Chunker] Input {len(text)} chars → {len(chunks)} chunks (size={chunk_size}, overlap={overlap})")
+    for i, c in enumerate(chunks):
+        print(f"[Chunker]   Chunk {i}: {len(c)} chars, ~{len(c)//4} tokens")
 
     return chunks
 
@@ -145,6 +188,8 @@ class EmbeddingModel:
     """Wrapper for sentence-transformers embedding model."""
 
     def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+        if not SentenceTransformer:
+            raise ImportError("sentence-transformers is not installed. Install it with: pip install sentence-transformers")
         self.model_name = model_name
         self.model = SentenceTransformer(model_name)
 
@@ -162,15 +207,10 @@ class EmbeddingModel:
 
 
 # Global embedding model instance
-_embedding_model = None
-
-
+@lru_cache(maxsize=1)
 def get_embedding_model() -> EmbeddingModel:
-    """Get or create global embedding model."""
-    global _embedding_model
-    if _embedding_model is None:
-        _embedding_model = EmbeddingModel()
-    return _embedding_model
+    """Get or create global embedding model (singleton)."""
+    return EmbeddingModel()
 
 
 def embed_text(text: str) -> list[float]:

@@ -15,12 +15,15 @@ class HybridSearcher:
 
     def index_chunks_for_bm25(self, collection_name: str, chunks: list[str]) -> None:
         """Build BM25 index for chunks."""
-        tokenized = [chunk.lower().split() for chunk in chunks]
+        existing = self.bm25_index.get(collection_name, {})
+        existing_chunks = existing.get("chunks", [])
+        all_chunks = existing_chunks + chunks
+        tokenized = [chunk.lower().split() for chunk in all_chunks]
         self.bm25_index[collection_name] = {
             "model": BM25Okapi(tokenized),
-            "chunks": chunks,
+            "chunks": all_chunks,
         }
-        print(f"[HybridSearcher] Indexed {len(chunks)} chunks for BM25 in {collection_name}")
+        print(f"[HybridSearcher] Indexed {len(chunks)} new chunks ({len(all_chunks)} total) for BM25 in {collection_name}")
 
     def bm25_search(self, collection_name: str, query: str, top_k: int = 10) -> list[dict]:
         """BM25 keyword search."""
@@ -67,6 +70,7 @@ class HybridSearcher:
             top_k = RAGConfig.TOP_K_RETRIEVAL
 
         print(f"[HybridSearcher] Starting hybrid search for query: {query[:50]}...")
+        print(f"[HybridSearcher] Filtering by doc_ids: {doc_ids}")
 
         # Get results from both methods
         semantic_results = vector_store.semantic_search(

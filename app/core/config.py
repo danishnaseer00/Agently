@@ -11,7 +11,8 @@ from dotenv import dotenv_values, load_dotenv
 class Settings:
     groq_api_key: str | None
     tavily_api_key: str | None
-    model_name: str = "openai/gpt-oss-120b"
+    # model_name: str = "openai/gpt-oss-120b"  # 8k TPM limit - too small for RAG
+    model_name: str = "llama-3.3-70b-versatile"  # 12k TPM limit - better for RAG with context
 
 
 def get_env_path() -> Path:
