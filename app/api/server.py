@@ -42,16 +42,24 @@ from app.services.document_service import (
     recursive_chunk_text,
 )
 from app.services.rag import get_rag_retrieval
+from app.services.vision.ocr import extract_text_from_bytes
 from app.tools.search import build_web_search_tool
 from app.tools.scraper import fetch_url
-from app.tools.file_tool import read_file, list_files
-from app.tools.write_file import write_file
+from app.tools.image_tool import analyze_image
+
 
 app = FastAPI(title="ReAct Agent API", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=[
+        "http://localhost:5173", 
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+        "http://localhost:5175",
+        "http://127.0.0.1:5175",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"]
@@ -93,15 +101,13 @@ def _build_executor(temperature: float, max_results: int, tool_names: list[str] 
     available = {
         "web_search": build_web_search_tool(settings, max_results),
         "fetch_url": fetch_url,
-        "read_file": read_file,
-        "list_files": list_files,
-        "write_file": write_file,
+        "analyze_image": analyze_image,
     }
 
     if tool_names:
         tools = [available[name] for name in tool_names if name in available]
     else:
-        tools = [available["web_search"], available["fetch_url"], available["read_file"], available["list_files"], available["write_file"]]
+        tools = [available["web_search"], available["fetch_url"], available["analyze_image"]]
 
     tool_names_list = [t.name for t in tools]
     print(f"\n[DEBUG] Building executor with tools: {tool_names_list}", file=sys.stderr)
@@ -119,9 +125,7 @@ def list_tools() -> dict:
         "tools": [
             {"name": "web_search", "description": "Search the web for current information, news, facts"},
             {"name": "fetch_url", "description": "Fetch content from a URL"},
-            {"name": "read_file", "description": "Read files from AI-workingdir folder"},
-            {"name": "list_files", "description": "List files in AI-workingdir folder"},
-            {"name": "write_file", "description": "Write files to AI-workingdir folder"},
+            {"name": "analyze_image", "description": "Extract text from an image via URL or base64"},
         ]
     }
 
@@ -226,6 +230,39 @@ async def upload_document(file: UploadFile, conversation_id: str) -> dict:
         import sys
         import traceback
         print(f"[API] Upload error: {exc}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        return {"error": str(exc), "status": "failed"}
+
+
+@app.post("/api/images/upload")
+async def upload_image(file: UploadFile) -> dict:
+    """Upload an image, run OCR, and return extracted text."""
+    import sys
+    try:
+        print(f"[API] Image upload: {file.filename}", file=sys.stderr)
+        content = await file.read()
+        print(f"[API] Image size: {len(content)} bytes", file=sys.stderr)
+
+        # Validate image type
+        allowed = {"image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"}
+        content_type = file.content_type or ""
+        if content_type not in allowed:
+            return {"error": f"Unsupported image type: {content_type}. Use PNG, JPG, WEBP, or GIF."}
+
+        # Run OCR
+        text = extract_text_from_bytes(content)
+        print(f"[API] OCR extracted {len(text)} chars", file=sys.stderr)
+
+        return {
+            "filename": file.filename,
+            "content_type": content_type,
+            "extracted_text": text,
+            "char_count": len(text),
+            "status": "success",
+        }
+    except Exception as exc:
+        import traceback
+        print(f"[API] Image upload error: {exc}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return {"error": str(exc), "status": "failed"}
 

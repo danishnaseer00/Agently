@@ -102,6 +102,21 @@ const deleteDocumentFromApi = async (docId, convId) => {
   } catch {}
 }
 
+const analyzeImageApi = async (file) => {
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    const res = await fetch(`${API_BASE}/api/images/upload`, {
+      method: 'POST',
+      body: formData,
+    })
+    if (!res.ok) return null
+    return await res.json()
+  } catch {
+    return null
+  }
+}
+
 function App() {
   const [conversations, setConversations] = useState([])
   const [activeId, setActiveId] = useState(null)
@@ -115,11 +130,16 @@ function App() {
   const [availableTools, setAvailableTools] = useState([])
   const [selectedTools, setSelectedTools] = useState([])
   const [showTools, setShowTools] = useState(false)
+  const [toolsExpanded, setToolsExpanded] = useState(false)
   const [documents, setDocuments] = useState([])
   const [selectedDocuments, setSelectedDocuments] = useState([])
   const [useRag, setUseRag] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadSuccess, setUploadSuccess] = useState('')
+  const [uploadedImage, setUploadedImage] = useState(null)
+  const [imageAnalysis, setImageAnalysis] = useState(null)
+  const [analyzingImage, setAnalyzingImage] = useState(false)
+  const imageInputRef = useRef(null)
   const bottomRef = useRef(null)
   const toolsRef = useRef(null)
   const fileInputRef = useRef(null)
@@ -151,13 +171,17 @@ function App() {
       loadConversationsFromApi().then((data) => {
         setConversations(data)
         setLoaded(true)
+        // Set the first conversation as active by default
+        if (data && data.length > 0 && !activeId) {
+          setActiveId(data[0].id)
+        }
       })
     }
     fetch(`${API_BASE}/api/tools`)
       .then((r) => r.json())
       .then((data) => setAvailableTools(data.tools || []))
       .catch(() => {})
-  }, [])
+  }, [loaded, activeId])
 
   useEffect(() => {
     if (activeId && loaded) {
@@ -181,26 +205,40 @@ function App() {
 
   const sendMessage = async () => {
     const trimmed = inputValue.trim()
-    if (!trimmed || !activeId) return
+    if ((!trimmed && !uploadedImage) || !activeId) return
 
     const history = chunkedHistory(messages)
     const currentConv = conversations.find((c) => c.id === activeId)
-    const title = currentConv?.title === 'New chat' ? trimmed.slice(0, 42) : currentConv?.title
+    const title = currentConv?.title === 'New chat' ? (trimmed || 'Image analysis').slice(0, 42) : currentConv?.title
 
-    const userMsg = { id: `user-${Date.now()}`, role: 'user', content: trimmed }
+    // Don't include raw OCR analysis - let agent handle it
+    let messageContent = trimmed || (uploadedImage ? 'Please analyze the attached image' : '')
+
+    const userMsg = { id: `user-${Date.now()}`, role: 'user', content: messageContent, image: uploadedImage }
     setMessages((prev) => [...prev, userMsg, { id: `assistant-${Date.now()}`, role: 'assistant', content: '' }])
 
     setInputValue('')
+    setUploadedImage(null)
+    setImageAnalysis(null)
     setIsThinking(true)
     setStatusText('Thinking...')
     setShowTools(false)
 
     try {
+      // Build the actual message content to send to API
+      let apiMessage = messageContent
+      if (imageAnalysis && imageAnalysis.length > 0) {
+        // Only include analysis if it exists, but keep it concise
+        apiMessage = messageContent 
+          ? `${messageContent}\n\nImage content: ${imageAnalysis}`
+          : `Image content: ${imageAnalysis}`
+      }
+
       const response = await fetch(`${API_BASE}/api/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: trimmed,
+          message: apiMessage,
           history,
           conversation_id: activeId,
           title,
@@ -279,6 +317,63 @@ function App() {
       event.preventDefault()
       sendMessage()
     }
+  }
+
+  const handlePaste = async (event) => {
+    const items = event.clipboardData?.items
+    if (!items) return
+
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        event.preventDefault()
+        const file = item.getAsFile()
+        if (file) {
+          await processImage(file)
+        }
+        break
+      }
+    }
+  }
+
+  const processImage = async (file) => {
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      alert('Please upload an image file')
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      setUploadedImage(e.target.result)
+    }
+    reader.onerror = () => {
+      alert('Failed to read image file')
+    }
+    reader.readAsDataURL(file)
+
+    setAnalyzingImage(true)
+    const result = await analyzeImageApi(file)
+    setAnalyzingImage(false)
+
+    if (result && !result.error) {
+      setImageAnalysis(result.extracted_text || 'Image ready for analysis')
+    } else {
+      // Still keep the image even if analysis failed
+      setImageAnalysis(result?.error || 'Failed to analyze image')
+    }
+  }
+
+  const handleImageUpload = async (event) => {
+    const file = event.target.files?.[0]
+    if (file) {
+      await processImage(file)
+      event.target.value = ''
+    }
+  }
+
+  const clearImage = () => {
+    setUploadedImage(null)
+    setImageAnalysis(null)
   }
 
   const toggleCollapse = () => {
@@ -471,6 +566,15 @@ function App() {
         <section className="message-list">
           {messages.map((message) => (
             <div key={message.id} className={`message-bubble ${message.role}`}>
+              {message.image && (
+                <div style={{ marginBottom: '8px' }}>
+                  <img 
+                    src={message.image} 
+                    alt="Uploaded" 
+                    style={{ maxWidth: '120px', maxHeight: '100px', borderRadius: '6px', border: '1px solid #e5e7eb', objectFit: 'cover' }} 
+                  />
+                </div>
+              )}
               <div className="message-text">
                 {message.role === 'assistant' ? formatMarkdown(message.content) : linkify(message.content)}
               </div>
@@ -485,229 +589,376 @@ function App() {
           <div ref={bottomRef} />
         </section>
 
-        <footer className="composer" style={{ position: 'relative', zIndex: 60 }}>
-          <div className="tools-container" ref={toolsRef}>
-            <button
-              className={`tool-btn ${showTools ? 'active' : ''} ${selectedTools.length > 0 ? 'has-selection' : ''}`}
-              onClick={() => setShowTools(!showTools)}
-              aria-label="Select tools"
-            >
-              <span className="tool-btn-icon">+</span>
-              {selectedTools.length > 0 && !showTools && (
-                <span className="tool-badge">{selectedTools.length}</span>
-              )}
-            </button>
+        <footer className="composer" style={{ position: 'relative', zIndex: 60, flexDirection: 'column' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: '10px', width: '100%' }}>
+            {/* The + Button directly inline */}
+            <div style={{ position: 'relative' }} ref={toolsRef}>
+              <button
+                className={`tool-btn ${showTools ? 'active' : ''} ${selectedTools.length > 0 ? 'has-selection' : ''}`}
+                onClick={() => setShowTools(!showTools)}
+                aria-label="Add attachment"
+                style={{ flexShrink: 0 }}
+              >
+                <span className="tool-btn-icon">+</span>
+                {selectedTools.length > 0 && !showTools && (
+                  <span className="tool-badge">{selectedTools.length}</span>
+                )}
+              </button>
 
-            {showTools && (
-              <div className="tools-box">
-                {/* Documents Section */}
-                <div style={{ paddingBottom: '12px', borderBottom: '1px solid #e5e7eb' }}>
-                  <div className="tools-box-header" style={{ paddingBottom: '8px' }}>
-                    <div className="header-left">
-                      <h3 style={{ margin: 0, fontSize: '0.9rem' }}>📄 Documents</h3>
-                      {selectedDocuments.length > 0 && (
-                        <span className="selected-count" style={{ fontSize: '0.75rem' }}>
-                          {selectedDocuments.length}
-                        </span>
-                      )}
+              {/* Upload Menu */}
+              {showTools && (
+                <div className="tools-box" style={{ bottom: 'calc(100% + 12px)', left: 0, width: '280px' }}>
+                  {/* Image Upload section */}
+                  <div style={{ paddingBottom: '12px', borderBottom: '1px solid #e5e7eb', marginBottom: '12px' }}>
+                    <div className="tools-box-header" style={{ paddingBottom: '8px', borderBottom: 'none' }}>
+                      <h3 style={{ margin: 0, fontSize: '0.9rem' }}>🖼️ Image</h3>
                     </div>
-                  </div>
-
-                  <div style={{ marginBottom: '8px', marginTop: '8px' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', cursor: 'pointer' }}>
-                      <input
-                        type="checkbox"
-                        checked={useRag}
-                        onChange={(e) => setUseRag(e.target.checked)}
-                        disabled={selectedDocuments.length === 0}
-                      />
-                      Use RAG
-                    </label>
-                  </div>
-
-                  <div style={{ marginBottom: '8px' }}>
                     <button
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={uploading}
+                      onClick={() => {
+                        imageInputRef.current?.click()
+                        setShowTools(false)
+                      }}
                       style={{
                         width: '100%',
-                        padding: '6px 10px',
-                        background: '#111827',
-                        color: '#fff',
-                        border: 'none',
+                        padding: '8px 10px',
+                        background: '#f3f4f6',
+                        color: '#111827',
+                        border: '1px solid #e5e7eb',
                         borderRadius: '6px',
-                        cursor: uploading ? 'not-allowed' : 'pointer',
-                        opacity: uploading ? 0.6 : 1,
-                        fontSize: '0.8rem',
+                        cursor: 'pointer',
+                        fontSize: '0.85rem',
                         fontWeight: 500,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px'
                       }}
                     >
-                      {uploading ? 'Uploading...' : '+ Upload File'}
+                      <span style={{ fontSize: '1.2rem' }}>📷</span> Upload Image
                     </button>
                     <input
-                      ref={fileInputRef}
+                      ref={imageInputRef}
                       type="file"
-                      accept=".pdf,.txt,.docx"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0]
-                        if (file && activeId) {
-                          setUploading(true)
-                          const result = await uploadDocumentToApi(file, activeId)
-                          setUploading(false)
-                          if (result) {
-                            setUploadSuccess(`Uploaded: ${file.name}`)
-                            await loadDocumentsFromApi(activeId).then((docs) => {
-                              setDocuments(docs)
-                              // Auto-select the newly uploaded document
-                              if (result.document_id) {
-                                setSelectedDocuments((prev) => [...prev, result.document_id])
-                              }
-                            })
-                            fileInputRef.current.value = ''
-                          }
-                        }
-                      }}
+                      accept="image/*"
+                      onChange={handleImageUpload}
                       style={{ display: 'none' }}
                     />
                   </div>
 
-                  {uploadSuccess && (
-                    <div style={{
-                      padding: '6px 8px',
-                      background: '#dcfce7',
-                      color: '#166534',
-                      borderRadius: '4px',
-                      fontSize: '0.75rem',
-                      marginBottom: '8px',
-                    }}>
-                      ✓ {uploadSuccess}
-                    </div>
-                  )}
-
-                  <div style={{ maxHeight: '200px', overflowY: 'auto', fontSize: '0.85rem' }}>
-                    {documents.length === 0 ? (
-                      <div style={{ padding: '8px', textAlign: 'center', color: '#6b7280' }}>
-                        No documents
+                  {/* Documents Section */}
+                  <div style={{ paddingBottom: '12px', borderBottom: '1px solid #e5e7eb' }}>
+                    <div className="tools-box-header" style={{ paddingBottom: '8px' }}>
+                      <div className="header-left">
+                        <h3 style={{ margin: 0, fontSize: '0.9rem' }}>📄 Documents</h3>
+                        {selectedDocuments.length > 0 && (
+                          <span className="selected-count" style={{ fontSize: '0.75rem' }}>
+                            {selectedDocuments.length}
+                          </span>
+                        )}
                       </div>
-                    ) : (
-                      documents.map((doc) => (
-                        <div
-                          key={doc.id}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '6px',
-                            borderRadius: '4px',
-                            background: selectedDocuments.includes(doc.id) ? '#f3f4f6' : 'transparent',
-                            cursor: 'pointer',
-                            marginBottom: '4px',
-                          }}
-                          onClick={() => {
-                            if (selectedDocuments.includes(doc.id)) {
-                              setSelectedDocuments((prev) => prev.filter((id) => id !== doc.id))
-                            } else {
-                              setSelectedDocuments((prev) => [...prev, doc.id])
-                            }
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedDocuments.includes(doc.id)}
-                            onChange={() => {}}
-                            style={{ cursor: 'pointer', width: '16px', height: '16px' }}
-                          />
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: '0.8rem', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {doc.filename}
-                            </div>
-                            <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>
-                              {(doc.size_bytes / 1024).toFixed(1)}KB
-                            </div>
-                          </div>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              deleteDocumentFromApi(doc.id, activeId).then(() => {
-                                setDocuments((prev) => prev.filter((d) => d.id !== doc.id))
-                                setSelectedDocuments((prev) => prev.filter((id) => id !== doc.id))
+                    </div>
+
+                    <div style={{ marginBottom: '8px', marginTop: '8px' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={useRag}
+                          onChange={(e) => setUseRag(e.target.checked)}
+                          disabled={selectedDocuments.length === 0}
+                        />
+                        Use RAG
+                      </label>
+                    </div>
+
+                    <div style={{ marginBottom: '8px' }}>
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploading}
+                        style={{
+                          width: '100%',
+                          padding: '6px 10px',
+                          background: '#111827',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: '6px',
+                          cursor: uploading ? 'not-allowed' : 'pointer',
+                          opacity: uploading ? 0.6 : 1,
+                          fontSize: '0.8rem',
+                          fontWeight: 500,
+                        }}
+                      >
+                        {uploading ? 'Uploading...' : '+ Upload File'}
+                      </button>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".pdf,.txt,.docx"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0]
+                          if (file && activeId) {
+                            setUploading(true)
+                            const result = await uploadDocumentToApi(file, activeId)
+                            setUploading(false)
+                            if (result) {
+                              setUploadSuccess(`Uploaded: ${file.name}`)
+                              await loadDocumentsFromApi(activeId).then((docs) => {
+                                setDocuments(docs)
+                                if (result.document_id) {
+                                  setSelectedDocuments((prev) => [...prev, result.document_id])
+                                }
                               })
-                            }}
-                            style={{
-                              background: 'transparent',
-                              border: 'none',
-                              cursor: 'pointer',
-                              fontSize: '0.8rem',
-                              padding: '2px',
-                            }}
-                            title="Delete document"
-                          >
-                            🗑
-                          </button>
+                              fileInputRef.current.value = ''
+                            }
+                          }
+                        }}
+                        style={{ display: 'none' }}
+                      />
+                    </div>
+
+                    {uploadSuccess && (
+                      <div style={{
+                        padding: '6px 8px',
+                        background: '#dcfce7',
+                        color: '#166534',
+                        borderRadius: '4px',
+                        fontSize: '0.75rem',
+                        marginBottom: '8px',
+                      }}>
+                        ✓ {uploadSuccess}
+                      </div>
+                    )}
+
+                    <div style={{ maxHeight: '150px', overflowY: 'auto', fontSize: '0.85rem' }}>
+                      {documents.length === 0 ? (
+                        <div style={{ padding: '8px', textAlign: 'center', color: '#6b7280' }}>
+                          No documents
                         </div>
-                      ))
+                      ) : (
+                        documents.map((doc) => (
+                          <div
+                            key={doc.id}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '6px',
+                              borderRadius: '4px',
+                              background: selectedDocuments.includes(doc.id) ? '#f3f4f6' : 'transparent',
+                              cursor: 'pointer',
+                              marginBottom: '4px',
+                            }}
+                            onClick={() => {
+                              if (selectedDocuments.includes(doc.id)) {
+                                setSelectedDocuments((prev) => prev.filter((id) => id !== doc.id))
+                              } else {
+                                setSelectedDocuments((prev) => [...prev, doc.id])
+                              }
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedDocuments.includes(doc.id)}
+                              onChange={() => {}}
+                              style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                            />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: '0.8rem', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {doc.filename}
+                              </div>
+                              <div style={{ fontSize: '0.7rem', color: '#6b7280' }}>
+                                {(doc.size_bytes / 1024).toFixed(1)}KB
+                              </div>
+                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                deleteDocumentFromApi(doc.id, activeId).then(() => {
+                                  setDocuments((prev) => prev.filter((d) => d.id !== doc.id))
+                                  setSelectedDocuments((prev) => prev.filter((id) => id !== doc.id))
+                                })
+                              }}
+                              style={{
+                                background: 'transparent',
+                                border: 'none',
+                                cursor: 'pointer',
+                                fontSize: '0.8rem',
+                                padding: '2px',
+                              }}
+                              title="Delete document"
+                            >
+                              🗑
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    {selectedDocuments.length > 0 && (
+                      <button
+                        className="clear-btn"
+                        onClick={() => setSelectedDocuments([])}
+                        style={{ width: '100%', marginTop: '8px', fontSize: '0.75rem' }}
+                      >
+                        Deselect All
+                      </button>
                     )}
                   </div>
 
-                  {selectedDocuments.length > 0 && (
-                    <button
-                      className="clear-btn"
-                      onClick={() => setSelectedDocuments([])}
-                      style={{ width: '100%', marginTop: '8px', fontSize: '0.75rem' }}
+                  {/* Tools Section */}
+                  <div>
+                    <div
+                      className="tools-box-header"
+                      style={{
+                        paddingBottom: '8px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                      }}
+                      onClick={() => setToolsExpanded((prev) => !prev)}
                     >
-                      Deselect All
-                    </button>
-                  )}
-                </div>
-
-                {/* Tools Section */}
-                <div>
-                  <div className="tools-box-header" style={{ paddingBottom: '8px' }}>
-                    <div className="header-left">
-                      <h3 style={{ margin: 0, fontSize: '0.9rem' }}>Available Tools</h3>
-                      {selectedTools.length > 0 && (
-                        <span className="selected-count">{selectedTools.length}</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="tools-list">
-                    {availableTools.map((tool) => (
-                      <div
-                        key={tool.name}
-                        className={`tool-item ${selectedTools.includes(tool.name) ? 'selected' : ''}`}
-                        onClick={() => {
-                          if (selectedTools.includes(tool.name)) {
-                            setSelectedTools((prev) => prev.filter((t) => t !== tool.name))
-                          } else {
-                            setSelectedTools((prev) => [...prev, tool.name])
-                          }
-                        }}
-                      >
-                        <div className="tool-item-name">{tool.name}</div>
-                        <div className="tool-item-desc">{tool.description}</div>
+                      <div className="header-left" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <h3 style={{ margin: 0, fontSize: '0.9rem' }}>Tools</h3>
+                        {selectedTools.length > 0 && (
+                          <span className="selected-count">{selectedTools.length}</span>
+                        )}
                       </div>
-                    ))}
+                      <span style={{ fontSize: '0.75rem', opacity: 0.6 }}>
+                        {toolsExpanded ? '▲' : '▼'}
+                      </span>
+                    </div>
+
+                    {toolsExpanded && (
+                      <>
+                        <div className="tools-list">
+                          {availableTools.map((tool) => (
+                            <div
+                              key={tool.name}
+                              className={`tool-item ${selectedTools.includes(tool.name) ? 'selected' : ''}`}
+                              onClick={() => {
+                                if (selectedTools.includes(tool.name)) {
+                                  setSelectedTools((prev) => prev.filter((t) => t !== tool.name))
+                                } else {
+                                  setSelectedTools((prev) => [...prev, tool.name])
+                                }
+                              }}
+                            >
+                              <div className="tool-item-name">{tool.name}</div>
+                              <div className="tool-item-desc">{tool.description}</div>
+                            </div>
+                          ))}
+                        </div>
+                        {selectedTools.length > 0 && (
+                          <button className="clear-btn" onClick={() => setSelectedTools([])} style={{ width: '100%', marginTop: '8px' }}>
+                            Clear
+                          </button>
+                        )}
+                      </>
+                    )}
                   </div>
-                  {selectedTools.length > 0 && (
-                    <button className="clear-btn" onClick={() => setSelectedTools([])} style={{ width: '100%', marginTop: '8px' }}>
-                      Clear
-                    </button>
+                </div>
+              )}
+            </div>
+
+            {/* Input Area */}
+            <div style={{ 
+              flex: 1, 
+              display: 'flex', 
+              flexDirection: 'column', 
+              borderRadius: '14px', 
+              border: '1px solid #e5e7eb', 
+              background: '#fff',
+              overflow: 'hidden'
+            }}>
+              {(uploadedImage || analyzingImage) && (
+                <div style={{ padding: '8px 12px', borderBottom: '1px solid #f3f4f6', background: '#fafafa' }}>
+                  {analyzingImage ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '0.8rem', animation: 'spin 1s linear infinite' }}>⟳</span>
+                      <span style={{ fontSize: '0.85rem', color: '#6b7280' }}>Analyzing image...</span>
+                    </div>
+                  ) : uploadedImage && (
+                    <div style={{ position: 'relative', display: 'inline-block' }}>
+                      <img 
+                        src={uploadedImage} 
+                        alt="Attached" 
+                        style={{ width: '48px', height: '48px', borderRadius: '6px', border: '1px solid #e5e7eb', objectFit: 'cover' }} 
+                      />
+                      <button 
+                        onClick={clearImage}
+                        style={{ 
+                          position: 'absolute',
+                          top: '-6px',
+                          right: '-6px',
+                          background: '#111827',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: '50%',
+                          width: '18px',
+                          height: '18px',
+                          cursor: 'pointer',
+                          fontSize: '0.7rem',
+                          padding: 0,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                        title="Remove image"
+                      >
+                        ✕
+                      </button>
+                    </div>
                   )}
                 </div>
-              </div>
-            )}
+              )}
+              
+              <textarea
+                placeholder="Ask something..."
+                value={inputValue}
+                onChange={(event) => setInputValue(event.target.value)}
+                onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
+                rows={1}
+                style={{ 
+                  width: '100%',
+                  minHeight: '44px',
+                  resize: 'none', 
+                  border: 'none', 
+                  padding: '12px 14px', 
+                  fontFamily: 'var(--font-ui)', 
+                  fontSize: '1rem', 
+                  color: 'var(--text)',
+                  outline: 'none',
+                  background: 'transparent'
+                }}
+              />
+            </div>
+            
+            <button 
+              className="primary" 
+              onClick={sendMessage} 
+              disabled={isThinking} 
+              aria-label="Send"
+              style={{
+                background: '#111827',
+                color: '#ffffff',
+                padding: '0 18px',
+                height: '44px',
+                borderRadius: '8px',
+                fontWeight: 600,
+                border: 'none',
+                cursor: isThinking ? 'not-allowed' : 'pointer',
+                opacity: isThinking ? 0.6 : 1,
+                flexShrink: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '1rem'
+              }}
+            >
+              Send
+            </button>
           </div>
-          <textarea
-            placeholder="Ask something current..."
-            value={inputValue}
-            onChange={(event) => setInputValue(event.target.value)}
-            onKeyDown={handleKeyDown}
-            rows={1}
-          />
-          <button className="primary" onClick={sendMessage} disabled={isThinking} aria-label="Send" style={{ position: 'relative', zIndex: 61 }}>
-            <span className="send-label">Send</span>
-            <span className="send-icon">➤</span>
-          </button>
         </footer>
       </main>
 

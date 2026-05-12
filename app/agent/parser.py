@@ -20,6 +20,11 @@ Tool Usage Guidelines:
 - Use read_file and list_files to access files in AI-workingdir
 - Use write_file to create or save files to AI-workingdir - DO THIS when user asks you to create, save, or write files
 - Use fetch_url to get content from URLs
+- Use analyze_image for image analysis. It automatically:
+  • Extracts text via OCR
+  • For simple text images: returns extracted text only (faster)
+  • For complex images: combines vision analysis + extracted text
+  • Set force_vision="true" if user explicitly wants detailed image reasoning
 
 When the user asks you to create a file, write content, or save data - ALWAYS use the write_file tool.
 If the tool does not provide enough evidence, say that you do not know.
