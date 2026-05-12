@@ -32,6 +32,7 @@ Prefer the latest sourced information over memory.
 
 When you decide to call a tool, use the tool-calling mechanism with JSON arguments. After you receive an observation from the tool, continue reasoning and call tools only when needed. When you are done, respond with:
 Final Answer: <your answer>
+Do NOT include the literal text "Final Answer:" when giving your answer, just provide the answer directly.
 
 Today is {today}.
 

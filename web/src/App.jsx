@@ -228,10 +228,10 @@ function App() {
       // Build the actual message content to send to API
       let apiMessage = messageContent
       if (imageAnalysis && imageAnalysis.length > 0) {
-        // Only include analysis if it exists, but keep it concise
+        // Only include analysis if it exists, but keep it concise and enforce system prompt directives
         apiMessage = messageContent 
-          ? `${messageContent}\n\nImage content: ${imageAnalysis}`
-          : `Image content: ${imageAnalysis}`
+          ? `${messageContent}\n\n[System Note: The user has attached an image to this message. A vision model has already analyzed it and provided this description: ${imageAnalysis}. Base your response directly on this description. Do NOT output "Final Answer:" and do NOT mention that you cannot see the image directly, just answer the prompt naturally.]`
+          : `[System Note: The user has attached an image to this message. A vision model has already analyzed it and provided this description: ${imageAnalysis}. Base your response directly on this description. Do NOT output "Final Answer:" and do NOT mention that you cannot see the image directly, just answer the prompt naturally.]`
       }
 
       const response = await fetch(`${API_BASE}/api/chat/stream`, {
@@ -590,6 +590,39 @@ function App() {
         </section>
 
         <footer className="composer" style={{ position: 'relative', zIndex: 60, flexDirection: 'column' }}>
+          {/* Hidden inputs to preserve refs when tools menu closes */}
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleImageUpload}
+            style={{ display: 'none' }}
+          />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.txt,.docx"
+            onChange={async (e) => {
+              const file = e.target.files?.[0]
+              if (file && activeId) {
+                setUploading(true)
+                const result = await uploadDocumentToApi(file, activeId)
+                setUploading(false)
+                if (result) {
+                  setUploadSuccess(`Uploaded: ${file.name}`)
+                  await loadDocumentsFromApi(activeId).then((docs) => {
+                    setDocuments(docs)
+                    if (result.document_id) {
+                      setSelectedDocuments((prev) => [...prev, result.document_id])
+                    }
+                  })
+                  fileInputRef.current.value = ''
+                }
+              }
+            }}
+            style={{ display: 'none' }}
+          />
+
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: '10px', width: '100%' }}>
             {/* The + Button directly inline */}
             <div style={{ position: 'relative' }} ref={toolsRef}>
@@ -636,13 +669,6 @@ function App() {
                     >
                       <span style={{ fontSize: '1.2rem' }}>📷</span> Upload Image
                     </button>
-                    <input
-                      ref={imageInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={handleImageUpload}
-                      style={{ display: 'none' }}
-                    />
                   </div>
 
                   {/* Documents Section */}
@@ -689,30 +715,6 @@ function App() {
                       >
                         {uploading ? 'Uploading...' : '+ Upload File'}
                       </button>
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept=".pdf,.txt,.docx"
-                        onChange={async (e) => {
-                          const file = e.target.files?.[0]
-                          if (file && activeId) {
-                            setUploading(true)
-                            const result = await uploadDocumentToApi(file, activeId)
-                            setUploading(false)
-                            if (result) {
-                              setUploadSuccess(`Uploaded: ${file.name}`)
-                              await loadDocumentsFromApi(activeId).then((docs) => {
-                                setDocuments(docs)
-                                if (result.document_id) {
-                                  setSelectedDocuments((prev) => [...prev, result.document_id])
-                                }
-                              })
-                              fileInputRef.current.value = ''
-                            }
-                          }
-                        }}
-                        style={{ display: 'none' }}
-                      />
                     </div>
 
                     {uploadSuccess && (
