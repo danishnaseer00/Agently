@@ -57,6 +57,10 @@ def load_settings() -> Settings:
         os.getenv("CLERK_SECRET_KEY")
         or env_values.get("CLERK_SECRET_KEY", "")
     )
+    model_name = (
+        os.getenv("MODEL_NAME")
+        or env_values.get("MODEL_NAME", "llama-3.3-70b-versatile")
+    )
 
     if tavily_key:
         os.environ["TAVILY_API_KEY"] = tavily_key
@@ -72,6 +76,7 @@ def load_settings() -> Settings:
         supabase_key=supabase_key,
         clerk_jwks_url=clerk_jwks_url,
         clerk_secret_key=clerk_secret_key,
+        model_name=model_name,
     )
 
 
