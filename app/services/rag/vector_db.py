@@ -16,15 +16,15 @@ class VectorStore:
     def __init__(self):
         """Initialize Qdrant client based on configuration."""
         self.config = QdrantConfig
-        self.snapshot_dir = RAGConfig.SNAPSHOT_DIR
+        self.snapshot_dir = RAGConfig.get_snapshot_dir()
         self.collection_count = 0
 
         # Initialize Qdrant client
-        if self.config.MODE == "remote":
-            print(f"[VectorStore] Connecting to remote Qdrant: {self.config.URL}")
+        if self.config.get_mode() == "remote":
+            print(f"[VectorStore] Connecting to remote Qdrant: {self.config.get_url()}")
             self.client = QdrantClient(
-                url=self.config.URL,
-                api_key=self.config.API_KEY,
+                url=self.config.get_url(),
+                api_key=self.config.get_api_key(),
             )
         else:
             print("[VectorStore] Using local persistent Qdrant")
@@ -43,7 +43,7 @@ class VectorStore:
             self.client.create_collection(
                 collection_name=collection_name,
                 vectors_config=VectorParams(
-                    size=RAGConfig.EMBEDDING_DIMENSION,
+                    size=RAGConfig.get_embedding_dimension(),
                     distance=Distance.COSINE,
                 ),
             )
@@ -158,7 +158,7 @@ class VectorStore:
 
     def _save_snapshot(self, collection_name: str) -> None:
         """Save snapshot of collection to disk."""
-        if self.config.MODE == "remote":
+        if self.config.get_mode() == "remote":
             return
 
         try:
@@ -173,7 +173,7 @@ class VectorStore:
 
     def _load_snapshot(self, collection_name: str) -> None:
         """Load snapshot from disk if it exists."""
-        if self.config.MODE == "remote":
+        if self.config.get_mode() == "remote":
             return
 
         try:

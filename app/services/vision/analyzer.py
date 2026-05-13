@@ -1,7 +1,5 @@
-"""Complex image analysis using Groq vision model."""
 
 from __future__ import annotations
-
 import base64
 from typing import TYPE_CHECKING
 

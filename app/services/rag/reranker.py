@@ -11,8 +11,8 @@ class Reranker:
         try:
             from sentence_transformers import CrossEncoder
 
-            self.model = CrossEncoder(RAGConfig.RERANKER_MODEL)
-            print(f"[Reranker] Loaded model: {RAGConfig.RERANKER_MODEL}")
+            self.model = CrossEncoder(RAGConfig.get_reranker_model())
+            print(f"[Reranker] Loaded model: {RAGConfig.get_reranker_model()}")
         except ImportError:
             print("[Reranker] CrossEncoder not available, reranking disabled")
             self.model = None
@@ -23,10 +23,10 @@ class Reranker:
     def rerank(self, query: str, documents: list[str], top_k: int | None = None) -> list[str]:
         """Rerank documents by relevance to query."""
         if not self.model or not documents:
-            return documents[: top_k or RAGConfig.TOP_K_RERANK]
+            return documents[: top_k or RAGConfig.get_top_k_rerank()]
 
         if top_k is None:
-            top_k = RAGConfig.TOP_K_RERANK
+            top_k = RAGConfig.get_top_k_rerank()
 
         try:
             print(f"[Reranker] Reranking {len(documents)} documents...")

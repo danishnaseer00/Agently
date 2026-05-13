@@ -1,7 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-
 def setup_cors(app: FastAPI) -> None:
     """Configure CORS middleware for development origins."""
     app.add_middleware(

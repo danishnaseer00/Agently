@@ -1,9 +1,6 @@
 from __future__ import annotations
-
 from collections.abc import Sequence
-
 from langchain.agents import AgentExecutor, create_tool_calling_agent
-
 from app.agent.parser import build_prompt
 
 

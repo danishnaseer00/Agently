@@ -1,5 +1,7 @@
-import { useRef, useState, useCallback, useEffect } from 'react'
-import { get } from './api/client.js'
+import { useEffect } from 'react'
+import { SignedIn, SignedOut, useAuth } from '@clerk/clerk-react'
+import { useRef, useState, useCallback } from 'react'
+import { get, setAuthToken, setTokenRefresh } from './api/client.js'
 import { useConversations } from './hooks/useConversations.js'
 import { useMessages } from './hooks/useMessages.js'
 import { useDocuments } from './hooks/useDocuments.js'
@@ -13,8 +15,9 @@ import MessageList from './components/chat/MessageList.jsx'
 import FullscreenImage from './components/chat/FullscreenImage.jsx'
 import ToolMenu from './components/documents/ToolMenu.jsx'
 import ErrorBoundary from './components/common/ErrorBoundary.jsx'
+import SignInPage from './components/auth/SignInPage.jsx'
 
-function App() {
+function AppContent() {
   // Hooks
   const {
     conversations,
@@ -319,6 +322,82 @@ function App() {
       {sidebarOpen && <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />}
     </div>
     </ErrorBoundary>
+  )
+}
+
+function App() {
+  const { isLoaded, isSignedIn, getToken } = useAuth()
+  const [tokenReady, setTokenReady] = useState(false)
+
+  useEffect(() => {
+    if (!isLoaded) return
+    setTokenReady(false)
+
+    // Not signed in → no token needed, let SignedOut render
+    if (!isSignedIn) {
+      setTokenReady(true)
+      return
+    }
+
+    let cancelled = false
+
+    const sync = async () => {
+      try {
+        const token = await getToken()
+        if (!cancelled && token) {
+          setAuthToken(token)
+          setTokenReady(true)
+        }
+      } catch {
+        // Token sync failed — Clerk will still try
+      }
+    }
+
+    sync()
+
+    // Allow client.js to auto-refresh the token when API calls get 401
+    setTokenRefresh(async () => {
+      const freshToken = await getToken()
+      return freshToken || null
+    })
+
+    // Re-sync every 30 seconds to keep the token fresh
+    const interval = setInterval(sync, 30 * 1000)
+
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [isLoaded, isSignedIn, getToken])
+
+  if (!isLoaded) {
+    return (
+      <div className="loading-screen">
+        <span className="loading-spinner" />
+      </div>
+    )
+  }
+
+  if (!tokenReady) {
+    return (
+      <div className="loading-screen">
+        <span className="loading-spinner" />
+        <p style={{ color: '#6b7280', marginTop: 16, fontSize: '0.9rem' }}>
+          Signing in...
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <SignedIn>
+        <AppContent />
+      </SignedIn>
+      <SignedOut>
+        <SignInPage />
+      </SignedOut>
+    </>
   )
 }
 

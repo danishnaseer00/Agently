@@ -5,9 +5,10 @@ import sys
 import traceback
 from datetime import datetime
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
+from app.api.deps import get_current_user
 from app.api.schemas.chat import ChatRequest, ChatResponse
 from app.api.helpers.sse import chunk_text, sse
 from app.api.helpers.trace import format_trace
@@ -45,7 +46,10 @@ def _get_rag_context(request: ChatRequest) -> str | None:
 
 
 @router.post("/api/chat", response_model=ChatResponse)
-def chat(request: ChatRequest) -> ChatResponse:
+def chat(
+    request: ChatRequest,
+    user_id: str = Depends(get_current_user),
+) -> ChatResponse:
     messages = [item.model_dump() for item in request.history]
     messages.append({"role": "user", "content": request.message})
 
@@ -57,16 +61,19 @@ def chat(request: ChatRequest) -> ChatResponse:
     conv_id = request.conversation_id or f"conv-{datetime.now().timestamp()}"
     now = datetime.now().isoformat()
 
-    save_conversation(conv_id, request.title or "New chat", now, now)
-    save_message(f"user-{datetime.now().timestamp()}", conv_id, "user", request.message, now)
-    save_message(f"assistant-{datetime.now().timestamp()}", conv_id, "assistant", answer, now)
+    save_conversation(conv_id, user_id, request.title or "New chat", now, now)
+    save_message(f"user-{datetime.now().timestamp()}", conv_id, user_id, "user", request.message, now)
+    save_message(f"assistant-{datetime.now().timestamp()}", conv_id, user_id, "assistant", answer, now)
 
     trace_payload = format_trace(trace) if request.debug else None
     return ChatResponse(answer=answer, trace=trace_payload)
 
 
 @router.post("/api/chat/stream")
-def chat_stream(request: ChatRequest):
+def chat_stream(
+    request: ChatRequest,
+    user_id: str = Depends(get_current_user),
+):
     messages = [item.model_dump() for item in request.history]
     messages.append({"role": "user", "content": request.message})
 
@@ -75,8 +82,8 @@ def chat_stream(request: ChatRequest):
 
     conv_id = request.conversation_id or f"conv-{datetime.now().timestamp()}"
     now = datetime.now().isoformat()
-    save_conversation(conv_id, request.title or "New chat", now, now)
-    save_message(f"user-{datetime.now().timestamp()}", conv_id, "user", request.message, now)
+    save_conversation(conv_id, user_id, request.title or "New chat", now, now)
+    save_message(f"user-{datetime.now().timestamp()}", conv_id, user_id, "user", request.message, now)
 
     async def event_stream():
         yield sse("status", {"state": "thinking"})
@@ -89,7 +96,7 @@ def chat_stream(request: ChatRequest):
             yield sse("chunk", {"text": chunk})
             await asyncio.sleep(0)
 
-        save_message(f"assistant-{datetime.now().timestamp()}", conv_id, "assistant", answer, now)
+        save_message(f"assistant-{datetime.now().timestamp()}", conv_id, user_id, "assistant", answer, now)
         yield sse("done", {"answer": answer})
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

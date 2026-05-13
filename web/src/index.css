@@ -210,6 +210,34 @@ body {
   margin: 0;
 }
 
+.header-spacer {
+  flex: 1;
+}
+
+.sign-out-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sign-out-button:hover {
+  background: var(--panel);
+  color: #dc2626;
+  border-color: #fecaca;
+}
+
+.sign-out-button:active {
+  transform: scale(0.95);
+}
+
 .conversation-title {
   font-family: var(--font-ui);
   font-weight: 600;
@@ -640,4 +668,24 @@ button.ghost {
   .send-icon {
     display: inline;
   }
+}
+
+/* ─── Loading Screen ───────────────────────────────────────────────── */
+
+.loading-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+.loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: #111827;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
 }

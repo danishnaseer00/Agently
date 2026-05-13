@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import sys
 import tempfile
 import traceback
 from datetime import datetime
 
-from fastapi import APIRouter, UploadFile
+from fastapi import APIRouter, Depends, UploadFile
 
+from app.api.deps import get_current_user
 from app.api.schemas.documents import DocumentMetadata
 from app.memory.db import (
     delete_document,
@@ -26,10 +26,14 @@ router = APIRouter(tags=["documents"])
 
 
 @router.post("/api/documents/upload")
-async def upload_document(file: UploadFile, conversation_id: str) -> dict:
+async def upload_document(
+    file: UploadFile,
+    conversation_id: str,
+    user_id: str = Depends(get_current_user),
+) -> dict:
     """Upload and index a document for RAG."""
     try:
-        print(f"[API] Upload started: file={file.filename}, conv_id={conversation_id}", file=sys.stderr)
+        print(f"[API] Upload started: file={file.filename}, user={user_id}, conv_id={conversation_id}", file=sys.stderr)
 
         # Save file to temp location
         with tempfile.NamedTemporaryFile(delete=False, suffix=".tmp") as tmp:
@@ -49,8 +53,8 @@ async def upload_document(file: UploadFile, conversation_id: str) -> dict:
         # Recursive chunking
         chunks = recursive_chunk_text(
             text,
-            chunk_size=RAGConfig.CHUNK_SIZE,
-            overlap=RAGConfig.CHUNK_OVERLAP,
+            chunk_size=RAGConfig.get_chunk_size(),
+            overlap=RAGConfig.get_chunk_overlap(),
         )
         print(f"[API] Created {len(chunks)} chunks", file=sys.stderr)
 
@@ -59,11 +63,7 @@ async def upload_document(file: UploadFile, conversation_id: str) -> dict:
         print(f"[API] Generated doc_id: {doc_id}", file=sys.stderr)
 
         # Save to database
-        metadata = json.dumps({
-            "original_name": file.filename,
-            "chunk_count": len(chunks),
-        })
-        save_document(doc_id, conversation_id, file.filename, content_type, len(content), metadata)
+        save_document(doc_id, conversation_id, user_id, file.filename, content_type, len(content))
         print(f"[API] Saved to database", file=sys.stderr)
 
         # Save chunks
@@ -91,9 +91,12 @@ async def upload_document(file: UploadFile, conversation_id: str) -> dict:
 
 
 @router.get("/api/documents")
-def list_documents(conversation_id: str) -> list[dict]:
+def list_documents(
+    conversation_id: str,
+    user_id: str = Depends(get_current_user),
+) -> list[dict]:
     """List documents for a conversation."""
-    docs = get_documents(conversation_id)
+    docs = get_documents(conversation_id, user_id)
     result = []
     for doc in docs:
         chunks = get_document_chunks(doc["id"])
@@ -111,7 +114,11 @@ def list_documents(conversation_id: str) -> list[dict]:
 
 
 @router.delete("/api/documents/{doc_id}")
-def delete_doc(doc_id: str, conversation_id: str) -> dict[str, str]:
+def delete_doc(
+    doc_id: str,
+    conversation_id: str,
+    user_id: str = Depends(get_current_user),
+) -> dict[str, str]:
     """Delete a document and its embeddings."""
     try:
         collection_name = (
@@ -123,7 +130,7 @@ def delete_doc(doc_id: str, conversation_id: str) -> dict[str, str]:
         rag = get_rag_retrieval()
         rag.vector_store.delete_by_doc_id(collection_name, doc_id)
 
-        delete_document(doc_id)
+        delete_document(doc_id, user_id)
         return {"status": "deleted"}
     except Exception as exc:
         return {"error": str(exc), "status": "failed"}

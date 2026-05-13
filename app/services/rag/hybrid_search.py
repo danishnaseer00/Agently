@@ -67,7 +67,7 @@ class HybridSearcher:
         Returns top-k chunk contents.
         """
         if top_k is None:
-            top_k = RAGConfig.TOP_K_RETRIEVAL
+            top_k = RAGConfig.get_top_k_retrieval()
 
         print(f"[HybridSearcher] Starting hybrid search for query: {query[:50]}...")
         print(f"[HybridSearcher] Filtering by doc_ids: {doc_ids}")

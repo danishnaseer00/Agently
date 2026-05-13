@@ -46,7 +46,7 @@ class RAGRetrieval:
         Returns top-k reranked chunks.
         """
         if top_k is None:
-            top_k = RAGConfig.TOP_K_RERANK
+            top_k = RAGConfig.get_top_k_rerank()
 
         print(f"[RAGRetrieval] Starting retrieval for query: {query[:60]}...")
         print(f"[RAGRetrieval] Collection: {collection_name}, Doc IDs: {doc_ids}")
@@ -57,7 +57,7 @@ class RAGRetrieval:
             collection_name,
             query,
             doc_ids,
-            top_k=RAGConfig.TOP_K_RETRIEVAL,
+            top_k=RAGConfig.get_top_k_retrieval(),
         )
 
         # Retry once if no chunks found (background indexing may still be in progress)
@@ -69,7 +69,7 @@ class RAGRetrieval:
                 collection_name,
                 query,
                 doc_ids,
-                top_k=RAGConfig.TOP_K_RETRIEVAL,
+                top_k=RAGConfig.get_top_k_retrieval(),
             )
 
         if not chunks:
