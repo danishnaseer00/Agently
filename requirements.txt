@@ -8,8 +8,12 @@ fastapi>=0.111.0
 uvicorn[standard]>=0.30.0
 requests>=2.32.0
 sentence-transformers>=2.2.2
-qdrant-client>=1.17.0
+qdrant-client==1.13.1
 pypdf>=4.0.0
 python-docx>=0.8.11
 rank-bm25>=0.2.2
 Pillow>=10.0.0
+click>=8.0.0
+pyjwt>=2.8.0
+supabase>=2.4.0
+PyJWT>=2.8.0

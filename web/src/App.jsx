@@ -152,6 +152,10 @@ function App() {
 
   useEffect(() => {
     const handleClickOutside = (event) => {
+      // Don't close if clicking on file inputs (they open dialogs that bubble events)
+      if (event.target === fileInputRef.current || event.target === imageInputRef.current) {
+        return
+      }
       if (toolsRef.current && !toolsRef.current.contains(event.target)) {
         setShowTools(false)
       }
