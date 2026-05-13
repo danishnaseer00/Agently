@@ -1,6 +1,7 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { sendChatMessage } from '../api/chat.js'
 import { parseSsePayload } from '../utils/sse.js'
+import { loadMessagesFromApi } from '../api/conversations.js'
 
 export function useMessages({ activeId, refreshConversations }) {
   const [messages, setMessages] = useState([])
@@ -10,6 +11,18 @@ export function useMessages({ activeId, refreshConversations }) {
 
   const chunkedHistory = (msgs) =>
     msgs.map((msg) => ({ role: msg.role, content: msg.content }))
+
+  // Load messages from API when active conversation changes
+  useEffect(() => {
+    if (!activeId) return
+    let cancelled = false
+    loadMessagesFromApi(activeId).then((data) => {
+      if (!cancelled) setMessages(data)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [activeId])
 
   const sendMessage = useCallback(async ({
     inputValue,

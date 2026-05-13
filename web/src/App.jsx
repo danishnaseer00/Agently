@@ -107,15 +107,13 @@ function App() {
 
   const handleNewChat = useCallback(() => {
     createNewChat()
-    setMessages([])
     setSidebarOpen(false)
-  }, [createNewChat, setMessages])
+  }, [createNewChat])
 
   const handleSelectConversation = useCallback((convId) => {
     setActiveId(convId)
-    setMessages([])
     setSidebarOpen(false)
-  }, [setActiveId, setMessages])
+  }, [setActiveId])
 
   return (
     <ErrorBoundary>
