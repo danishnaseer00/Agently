@@ -139,6 +139,7 @@ function App() {
   const [uploadedImage, setUploadedImage] = useState(null)
   const [imageAnalysis, setImageAnalysis] = useState(null)
   const [analyzingImage, setAnalyzingImage] = useState(false)
+  const [fullscreenImage, setFullscreenImage] = useState(null)
   const imageInputRef = useRef(null)
   const bottomRef = useRef(null)
   const toolsRef = useRef(null)
@@ -492,6 +493,52 @@ function App() {
 
   return (
     <div className="app-shell">
+      {fullscreenImage && (
+        <div 
+          onClick={() => setFullscreenImage(null)}
+          style={{
+            position: 'fixed',
+            top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'zoom-out',
+            padding: '20px'
+          }}
+        >
+          <button 
+            onClick={() => setFullscreenImage(null)}
+            style={{
+              position: 'absolute',
+              top: '20px',
+              right: '20px',
+              background: 'transparent',
+              color: 'white',
+              border: 'none',
+              fontSize: '2rem',
+              cursor: 'pointer',
+              zIndex: 10000
+            }}
+          >
+            ✕
+          </button>
+          <img 
+            src={fullscreenImage} 
+            alt="Fullscreen" 
+            style={{
+              maxHeight: '90vh',
+              maxWidth: '90vw',
+              objectFit: 'contain',
+              borderRadius: '8px',
+              cursor: 'default' // prevent zooming out if clicking on image itself or handle click propagation
+            }}
+            onClick={(e) => e.stopPropagation()} 
+          />
+        </div>
+      )}
+
       <aside className={`sidebar ${sidebarOpen ? 'open' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`}>
         <div className="sidebar-header">
           <div className="brand-row">
@@ -571,7 +618,8 @@ function App() {
                   <img 
                     src={message.image} 
                     alt="Uploaded" 
-                    style={{ maxWidth: '120px', maxHeight: '100px', borderRadius: '6px', border: '1px solid #e5e7eb', objectFit: 'cover' }} 
+                    onClick={() => setFullscreenImage(message.image)}
+                    style={{ maxWidth: '120px', maxHeight: '100px', borderRadius: '6px', border: '1px solid #e5e7eb', objectFit: 'cover', cursor: 'pointer' }} 
                   />
                 </div>
               )}
