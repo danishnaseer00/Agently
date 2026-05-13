@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 import os
 
@@ -46,3 +47,9 @@ def load_settings() -> Settings:
         os.environ["Groq_API_KEY"] = groq_key
 
     return Settings(groq_api_key=groq_key, tavily_api_key=tavily_key)
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    """Cached wrapper around load_settings()."""
+    return load_settings()

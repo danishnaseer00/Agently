@@ -26,16 +26,3 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     trace: list[dict[str, str]] | None = None
-
-
-class UpdateTitleRequest(BaseModel):
-    title: str = Field(..., description="New conversation title")
-
-
-class DocumentMetadata(BaseModel):
-    id: str
-    filename: str
-    content_type: str | None
-    size_bytes: int
-    upload_date: str
-    chunk_count: int = 0
