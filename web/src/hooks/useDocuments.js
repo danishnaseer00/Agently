@@ -43,10 +43,19 @@ export function useDocuments(activeId) {
   }, [activeId])
 
   const deleteDocument = useCallback(async (docId) => {
-    await deleteDocumentFromApi(docId, activeId)
+    // Optimistically remove from UI immediately
+    const prevDocs = documents
+    const prevSelected = selectedDocuments
     setDocuments((prev) => prev.filter((d) => d.id !== docId))
     setSelectedDocuments((prev) => prev.filter((id) => id !== docId))
-  }, [activeId])
+    try {
+      await deleteDocumentFromApi(docId, activeId)
+    } catch {
+      // Revert on failure
+      setDocuments(prevDocs)
+      setSelectedDocuments(prevSelected)
+    }
+  }, [activeId, documents, selectedDocuments])
 
   const toggleDocument = useCallback((docId) => {
     setSelectedDocuments((prev) =>

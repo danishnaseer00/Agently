@@ -41,8 +41,16 @@ export function useConversations() {
   }, [])
 
   const updateTitle = useCallback(async (convId, title) => {
-    await updateTitleApi(convId, title)
-    refreshConversations()
+    // Optimistically update local state immediately
+    setConversations((prev) =>
+      prev.map((c) => (c.id === convId ? { ...c, title } : c)),
+    )
+    try {
+      await updateTitleApi(convId, title)
+    } catch {
+      // Revert on failure — re-fetch from server
+      refreshConversations()
+    }
   }, [refreshConversations])
 
   return {
