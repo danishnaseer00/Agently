@@ -199,8 +199,35 @@
 
 @media (max-width: 900px) {
   .tools-box {
-    width: calc(100vw - 32px);
-    left: 0;
-    max-height: 60vh;
+    width: calc(100vw - 32px) !important;
+    left: 0 !important;
+    padding: 12px !important;
+    max-height: 50vh;
+  }
+
+  .tools-box-header h3 {
+    font-size: 0.8rem !important;
+  }
+
+  .tool-item {
+    padding: 8px !important;
+  }
+
+  .tool-item-name {
+    font-size: 0.78rem !important;
+  }
+
+  .tool-item-desc {
+    font-size: 0.68rem !important;
+  }
+
+  .tool-btn {
+    width: 38px !important;
+    height: 38px !important;
+    border-radius: 10px !important;
+  }
+
+  .tool-btn-icon {
+    font-size: 1.2rem !important;
   }
 }

@@ -5,7 +5,7 @@ import sys
 from app.core.config import get_settings
 from app.core.llm import build_llm
 from app.agent.agent import build_agent
-from app.agent.optimized_agent import run_optimized_agent
+from app.agent.agent import run_optimized_agent
 from app.tools.search import build_web_search_tool
 from app.tools.scraper import fetch_url
 from app.tools.image_tool import analyze_image

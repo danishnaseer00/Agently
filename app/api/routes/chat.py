@@ -110,7 +110,7 @@ def handle_slash_command(
     request: SlashCommandRequest,
     user_id: str = Depends(get_current_user),
 ):
-    from app.services.slash_service import run_summarize, run_deep_think
+    from app.services.slash import run_summarize, run_deep_think
     from app.memory.db import get_conversation_messages, save_message
 
     try:

@@ -533,6 +533,10 @@ button.ghost {
   border-radius: 999px;
 }
 
+.slash-commands-dropdown {
+  width: 320px;
+}
+
 .mobile-only {
   display: none;
 }
@@ -667,6 +671,13 @@ button.ghost {
 
   .send-icon {
     display: inline;
+  }
+
+  .slash-commands-dropdown {
+    width: calc(100vw - 32px) !important;
+    left: 0 !important;
+    max-height: 40vh;
+    overflow-y: auto;
   }
 }
 

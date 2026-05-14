@@ -1,12 +1,9 @@
--- Supabase SQL migration for ReAct Agent
--- DANGER: Drops existing tables. Run only on fresh setup.
 
 DROP TABLE IF EXISTS document_chunks CASCADE;
 DROP TABLE IF EXISTS documents CASCADE;
 DROP TABLE IF EXISTS messages CASCADE;
 DROP TABLE IF EXISTS conversations CASCADE;
 
--- Enable UUID generation (if not already enabled)
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Conversations table
@@ -49,7 +46,7 @@ CREATE TABLE documents (
 CREATE INDEX idx_documents_conv ON documents(conversation_id);
 CREATE INDEX idx_documents_user ON documents(user_id);
 
--- Document chunks table (for RAG chunk storage)
+
 CREATE TABLE document_chunks (
     id TEXT PRIMARY KEY,
     document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,

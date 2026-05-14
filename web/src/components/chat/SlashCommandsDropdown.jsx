@@ -104,11 +104,11 @@ export default function SlashCommandsDropdown({ inputValue, onSelect, onClose })
 
       <div
         ref={dropdownRef}
+        className="slash-commands-dropdown"
         style={{
           position: 'absolute',
           bottom: 'calc(100% + 8px)',
           left: 0,
-          width: '320px',
           background: '#ffffff',
           border: '1px solid #e5e7eb',
           borderRadius: '12px',
