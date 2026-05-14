@@ -18,7 +18,9 @@ from app.services.rag.config import RAGConfig
 app = FastAPI(title="ReAct Agent API", version="0.1.0")
 
 # Middleware stack (order matters: CORS first, logging second)
-setup_cors(app)
+settings = get_settings()
+extra_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()] if settings.cors_origins else None
+setup_cors(app, extra_origins=extra_origins)
 setup_logging(app)
 
 # Register routers

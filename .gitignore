@@ -30,3 +30,4 @@ node_modules/
 web/node_modules/
 web/dist/
 web/.vite/
+DEPLOYMENT.md

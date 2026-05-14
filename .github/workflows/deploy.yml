@@ -1,0 +1,44 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # ─── Backend: Hugging Face Spaces ─────────────────────────────
+  deploy-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Push to Hugging Face Spaces
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE_ID: ${{ secrets.HF_SPACE_ID }}
+        run: |
+          git clone https://huggingface.co/spaces/$HF_SPACE_ID hf-space
+          rsync -av --delete --exclude='.git' --exclude='.env' ./ hf-space/
+          cd hf-space
+          git config user.email "ci@deploy.dev"
+          git config user.name "CI Deploy"
+          git add .
+          git diff --quiet && git diff --staged --quiet || git commit -m "Deploy $(date -u '+%Y-%m-%d %H:%M UTC')"
+          git push https://user:$HF_TOKEN@huggingface.co/spaces/$HF_SPACE_ID main
+
+  # ─── Frontend: Vercel ────────────────────────────────────────
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: "--prod"
+          working-directory: ./web
