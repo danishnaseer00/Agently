@@ -5,11 +5,9 @@ from typing import Any
 
 from app.core.config import get_settings
 from app.core.llm import build_llm
-from app.agent.agent import build_agent
 from app.memory.db import get_conversation_messages
-from app.services.chat_executor import build_executor
-from app.agent.executor import run_agent
 from app.memory.short_term import format_history
+from app.services.chat_executor import build_optimized_executor
 
 
 # ─── /summarize ────────────────────────────────────────────────────────
@@ -78,15 +76,25 @@ def run_deep_think(
     print(f"[Slash] deepThink starting{' with topic: ' + topic if topic else ' from conversation'}",
           file=sys.stderr)
 
-    executor = build_executor(temperature=0.3, max_results=8)
+    # Use optimized executor: compresses tool results, retries 413 errors
+    executor = build_optimized_executor(
+        temperature=0.3,
+        max_results=8,
+        tool_names=["web_search", "fetch_url"],
+        model_name=settings.deep_think_model,
+        max_iterations=4,      # Max 4 tool call rounds
+        compress_chars=1200,   # Compress each tool result to ~300 tokens
+        tool_output_limit=1500,# Limit raw output logged
+    )
 
     chat_history = ""
     if messages:
         chat_history = format_history(
-            [{"role": m["role"], "content": m["content"]} for m in messages[-6:]]
+            [{"role": m["role"], "content": m["content"]} for m in messages[-3:]]
         )
 
-    return run_agent(executor, depth_prompt, chat_history)
+    answer, steps = executor["run_fn"](depth_prompt, chat_history)
+    return answer, steps
 
 
 def _build_deep_prompt(topic: str | None, messages: list | None) -> str:
@@ -107,17 +115,20 @@ def _build_deep_prompt(topic: str | None, messages: list | None) -> str:
     return (
         "You are a deep research agent. Your task is to conduct thorough research on the following topic.\n\n"
         f"{context}\n\n"
+        "CRITICAL RULE — DO NOT IGNORE:\n"
+        "Your answer MUST be based on what you find via the search tools.\n"
+        "Do NOT write a generic overview from your training memory.\n"
+        "The user wants SPECIFIC, CONCRETE findings — not general background.\n\n"
         "Instructions:\n"
-        "1. Break the topic into 3-5 key sub-questions or angles\n"
-        "2. Search the web for each angle using the web_search tool\n"
-        "3. Fetch and read the most promising sources using fetch_url\n"
+        "1. Search the web for the topic using the web_search tool — search for at least 3 different queries\n"
+        "2. Fetch and read the most promising sources using fetch_url to get full details\n"
+        "3. Present the SPECIFIC items you found (paper titles, findings, data, names, dates — whatever is relevant)\n"
         "4. Cross-reference information from multiple sources\n"
-        "5. Synthesize a comprehensive, well-structured answer\n\n"
+        "5. If the user asks for a list, give them the actual list — not an essay about the topic\n\n"
         "Guidelines:\n"
         "- Search for at least 3 different queries to get diverse perspectives\n"
         "- Prioritize recent and authoritative sources\n"
         "- If sources disagree, note the different viewpoints\n"
-        "- Do NOT output 'Final Answer:' — just provide the research directly\n"
         "- Be thorough but stay within the token limit\n\n"
-        "Begin your research now."
+        "Research and provide your answer."
     )

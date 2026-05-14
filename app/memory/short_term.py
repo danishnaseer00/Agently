@@ -11,7 +11,7 @@ def format_history(messages: list[dict[str, str]]) -> str:
         role = message["role"]
         label = "User" if role == "user" else "Assistant"
         content = message["content"]
-        if len(content) > 2000:
-            content = content[:2000] + "\n... (truncated)"
+        if len(content) > 1000:
+            content = content[:1000] + "\n... (truncated)"
         lines.append(f"{label}: {content}")
     return "\n".join(lines)

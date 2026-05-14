@@ -17,6 +17,7 @@ class Settings:
     clerk_jwks_url: str = ""
     clerk_secret_key: str = ""
     model_name: str = "llama-3.3-70b-versatile"
+    deep_think_model: str = "llama-3.3-70b-versatile"
 
 
 def get_env_path() -> Path:
@@ -61,6 +62,10 @@ def load_settings() -> Settings:
         os.getenv("MODEL_NAME")
         or env_values.get("MODEL_NAME", "llama-3.3-70b-versatile")
     )
+    deep_think_model = (
+        os.getenv("DEEP_THINK_MODEL")
+        or env_values.get("DEEP_THINK_MODEL", "llama-3.3-70b-versatile")
+    )
 
     if tavily_key:
         os.environ["TAVILY_API_KEY"] = tavily_key
@@ -77,6 +82,7 @@ def load_settings() -> Settings:
         clerk_jwks_url=clerk_jwks_url,
         clerk_secret_key=clerk_secret_key,
         model_name=model_name,
+        deep_think_model=deep_think_model,
     )
 
 

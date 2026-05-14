@@ -19,7 +19,7 @@ def build_web_search_tool(settings: Settings, max_results: int = 5):
         client = TavilyClient(api_key=api_key)
         response: dict[str, Any] = client.search(
             query=query,
-            max_results=max_results,
+            max_results=min(max_results, 5),  # hard cap at 5 to save tokens
             include_answer=True,
             search_depth="advanced",
         )
@@ -27,6 +27,8 @@ def build_web_search_tool(settings: Settings, max_results: int = 5):
         sections: list[str] = []
         answer = response.get("answer")
         if answer:
+            # Truncate answer to 500 chars
+            answer = answer[:500] + "…" if len(answer) > 500 else answer
             sections.append(f"Answer: {answer}")
 
         results = response.get("results", [])
@@ -34,10 +36,13 @@ def build_web_search_tool(settings: Settings, max_results: int = 5):
             sections.append("No search results were returned.")
             return "\n\n".join(sections)
 
-        for index, result in enumerate(results, start=1):
+        for index, result in enumerate(results[:5], start=1):  # max 5 results
             title = result.get("title", "Untitled result")
             url = result.get("url", "")
             content = result.get("content", "")
+            # Truncate each snippet to 300 chars
+            if len(content) > 300:
+                content = content[:300] + "…"
             sections.append(f"{index}. {title}\nURL: {url}\nSnippet: {content}")
 
         return "\n\n".join(sections)

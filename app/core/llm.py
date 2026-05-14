@@ -7,15 +7,17 @@ from langchain_groq import ChatGroq
 from app.core.config import Settings
 
 
-def build_llm(settings: Settings, temperature: float, tools: Sequence | None = None):
+def build_llm(settings: Settings, temperature: float, tools: Sequence | None = None, model_name: str | None = None):
     if not settings.groq_api_key:
         raise RuntimeError(
             "Groq API key is missing. Set GROQ_API_KEY or Groq_API_KEY in the environment."
         )
 
+    actual_model = model_name or settings.model_name
+
     llm = ChatGroq(
         api_key=settings.groq_api_key,
-        model_name=settings.model_name,
+        model_name=actual_model,
         temperature=temperature,
         max_retries=2,
     )
