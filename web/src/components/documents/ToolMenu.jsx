@@ -32,7 +32,7 @@ export default function ToolMenu({
       {/* Image Upload section */}
       <div style={{ paddingBottom: '12px', borderBottom: '1px solid #e5e7eb', marginBottom: '12px' }}>
         <div className="tools-box-header" style={{ paddingBottom: '8px', borderBottom: 'none' }}>
-          <h3 style={{ margin: 0, fontSize: '0.9rem' }}>🖼️ Image</h3>
+          <h3 style={{ margin: 0, fontSize: '0.9rem' }}> Image</h3>
         </div>
         <button
           onClick={onImageUploadClick}
@@ -52,7 +52,7 @@ export default function ToolMenu({
             gap: '8px',
           }}
         >
-          <span style={{ fontSize: '1.2rem' }}>📷</span> Upload Image
+          <span style={{ fontSize: '1.2rem' }}></span> Upload Image
         </button>
       </div>
 
@@ -60,7 +60,7 @@ export default function ToolMenu({
       <div style={{ paddingBottom: '12px', borderBottom: '1px solid #e5e7eb' }}>
         <div className="tools-box-header" style={{ paddingBottom: '8px' }}>
           <div className="header-left">
-            <h3 style={{ margin: 0, fontSize: '0.9rem' }}>📄 Documents</h3>
+            <h3 style={{ margin: 0, fontSize: '0.9rem' }}>Documents</h3>
             {selectedDocuments.length > 0 && (
               <span className="selected-count" style={{ fontSize: '0.75rem' }}>
                 {selectedDocuments.length}

@@ -53,3 +53,45 @@ export async function sendChatMessage(params) {
 
   return response.body.getReader()
 }
+
+/**
+ * Execute a slash command (e.g. /summarize, /deepThink) and return the result.
+ * Includes a 50-second timeout to prevent the UI from freezing forever.
+ */
+export async function sendSlashCommand(command, conversationId, topic = '') {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 50000)
+
+  const headers = {
+    'Content-Type': 'application/json',
+    ...getAuthHeaders(),
+  }
+
+  try {
+    const response = await fetch(`${API_BASE}/api/chat/slash`, {
+      method: 'POST',
+      headers,
+      signal: controller.signal,
+      body: JSON.stringify({
+        command,
+        conversation_id: conversationId,
+        topic: topic || null,
+      }),
+    })
+
+    clearTimeout(timeoutId)
+
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => '')
+      throw new Error(`Slash command failed: ${response.status}${errorBody ? ` — ${errorBody}` : ''}`)
+    }
+
+    return response.json()
+  } catch (err) {
+    clearTimeout(timeoutId)
+    if (err.name === 'AbortError') {
+      throw new Error('Request timed out. Please try again.')
+    }
+    throw err
+  }
+}

@@ -134,7 +134,9 @@ export function useMessages({ activeId, refreshConversations }) {
     messages,
     setMessages,
     isThinking,
+    setIsThinking,
     statusText,
+    setStatusText,
     bottomRef,
     sendMessage,
   }

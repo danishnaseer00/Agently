@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import sys
 import traceback
 from datetime import datetime
@@ -9,13 +10,15 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import get_current_user
-from app.api.schemas.chat import ChatRequest, ChatResponse
+from app.api.schemas.chat import ChatRequest, ChatResponse, SlashCommandRequest
 from app.api.helpers.sse import chunk_text, sse
 from app.api.helpers.trace import format_trace
 from app.services.chat_executor import build_executor
 from app.services.research_service import run_research
 from app.services.rag import get_rag_retrieval
 from app.memory.db import save_conversation, save_message
+
+SLASH_COMMAND_TIMEOUT = 45  # seconds
 
 router = APIRouter(tags=["chat"])
 
@@ -100,3 +103,56 @@ def chat_stream(
         yield sse("done", {"answer": answer})
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/api/chat/slash")
+def handle_slash_command(
+    request: SlashCommandRequest,
+    user_id: str = Depends(get_current_user),
+):
+    from app.services.slash_service import run_summarize, run_deep_think
+    from app.memory.db import get_conversation_messages
+
+    try:
+        if request.command == "summarize":
+            if not request.conversation_id:
+                return {"error": "No conversation selected"}
+            # Run summarize with a timeout (same pattern as deepThink)
+            pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            try:
+                fut = pool.submit(run_summarize, request.conversation_id, user_id)
+                summary = fut.result(timeout=SLASH_COMMAND_TIMEOUT)
+                return {"answer": summary}
+            except concurrent.futures.TimeoutError:
+                print(f"[Slash] summarize timed out after {SLASH_COMMAND_TIMEOUT}s", file=sys.stderr)
+                return {"error": "Summarize timed out. The conversation may be too long."}
+            finally:
+                pool.shutdown(wait=False)
+
+        if request.command == "deepThink":
+            if not request.conversation_id:
+                return {"error": "No conversation selected"}
+
+            messages = get_conversation_messages(request.conversation_id, user_id)
+
+            pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            try:
+                fut = pool.submit(
+                    run_deep_think,
+                    request.conversation_id,
+                    user_id,
+                    request.topic,
+                    messages if messages else None,
+                )
+                answer, _ = fut.result(timeout=SLASH_COMMAND_TIMEOUT)
+                return {"answer": answer}
+            except concurrent.futures.TimeoutError:
+                print(f"[Slash] deepThink timed out after {SLASH_COMMAND_TIMEOUT}s", file=sys.stderr)
+                return {"error": "Deep research timed out. Try a more specific topic."}
+            finally:
+                pool.shutdown(wait=False)
+
+        return {"error": f"Unknown command: {request.command}"}
+    except Exception as exc:
+        traceback.print_exc(file=sys.stderr)
+        return {"error": f"Command failed: {str(exc)}"}

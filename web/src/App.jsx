@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { SignedIn, SignedOut, useAuth } from '@clerk/clerk-react'
 import { useRef, useState, useCallback } from 'react'
 import { get, setAuthToken, setTokenRefresh } from './api/client.js'
+import { sendChatMessage, sendSlashCommand } from './api/chat.js'
 import { useConversations } from './hooks/useConversations.js'
 import { useMessages } from './hooks/useMessages.js'
 import { useDocuments } from './hooks/useDocuments.js'
@@ -9,6 +10,7 @@ import { useImageUpload } from './hooks/useImageUpload.js'
 import { useFullscreenImage } from './hooks/useFullscreenImage.js'
 import { useClickOutside } from './hooks/useClickOutside.js'
 import { DEFAULT_TOOLS } from './utils/constants.js'
+import SlashCommandsDropdown, { parseSlashCommand } from './components/chat/SlashCommandsDropdown.jsx'
 import Header from './components/layout/Header.jsx'
 import Sidebar from './components/layout/Sidebar.jsx'
 import MessageList from './components/chat/MessageList.jsx'
@@ -34,7 +36,9 @@ function AppContent() {
     messages,
     setMessages,
     isThinking,
+    setIsThinking,
     statusText,
+    setStatusText,
     sendMessage,
   } = useMessages({ activeId, refreshConversations })
 
@@ -71,10 +75,12 @@ function AppContent() {
   const [availableTools, setAvailableTools] = useState(DEFAULT_TOOLS)
   const [selectedTools, setSelectedTools] = useState([])
   const [showTools, setShowTools] = useState(false)
+  const [showSlashCommands, setShowSlashCommands] = useState(false)
 
   const toolsRef = useRef(null)
   const imageInputRef = useRef(null)
   const fileInputRef = useRef(null)
+  const textareaRef = useRef(null)
 
   // Load available tools on mount
   useEffect(() => {
@@ -86,7 +92,63 @@ function AppContent() {
   // Click outside to close tools menu
   useClickOutside(toolsRef, () => setShowTools(false), [fileInputRef, imageInputRef])
 
+  const handleSlashCommand = useCallback(async (cmd) => {
+    if (!activeId) return
+
+    const trimmed = inputValue.slice(cmd.id.length + 1).trim() // text after the command name
+    const topic = trimmed || ''
+
+    const userMsg = { id: `user-${Date.now()}`, role: 'user', content: `/${cmd.id} ${topic}` }
+    setMessages((prev) => [...prev, userMsg, { id: `assistant-${Date.now()}`, role: 'assistant', content: '' }])
+
+    setInputValue('')
+    setIsThinking(true)
+    setStatusText(cmd.id === 'summarize' ? 'Summarizing conversation...' : 'Researching...')
+    setShowTools(false)
+
+    try {
+      const data = await sendSlashCommand(cmd.id, activeId, topic)
+
+      if (data.error) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.role === 'assistant' && m.content === ''
+              ? { ...m, content: `Error: ${data.error}` }
+              : m,
+          ),
+        )
+      } else {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.role === 'assistant' && m.content === ''
+              ? { ...m, content: data.answer || 'No response' }
+              : m,
+          ),
+        )
+      }
+    } catch (error) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.role === 'assistant' && m.content === ''
+            ? { ...m, content: `Error: ${error.message}` }
+            : m,
+        ),
+      )
+    }
+
+    setIsThinking(false)
+    setStatusText('')
+    refreshConversations()
+  }, [activeId, inputValue, messages, refreshConversations])
+
   const handleSend = useCallback(() => {
+    // Check if this is a slash command
+    const parsed = parseSlashCommand(inputValue)
+    if (parsed && parsed.matched) {
+      handleSlashCommand(parsed.matched)
+      return
+    }
+
     sendMessage({
       inputValue,
       uploadedImage,
@@ -99,7 +161,7 @@ function AppContent() {
       setImageAnalysis,
       setShowTools,
     })
-  }, [inputValue, uploadedImage, imageAnalysis, selectedTools, selectedDocuments, useRag, sendMessage])
+  }, [inputValue, uploadedImage, imageAnalysis, selectedTools, selectedDocuments, useRag, sendMessage, handleSlashCommand])
 
   const handleKeyDown = useCallback((event) => {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -168,7 +230,21 @@ function AppContent() {
           style={{ display: 'none' }}
         />
 
-        <footer className="composer" style={{ position: 'relative', zIndex: 60, flexDirection: 'column' }}>
+        <footer className="composer" style={{ position: 'relative', zIndex: 100, flexDirection: 'column' }}>
+          {/* Slash commands dropdown - positioned above the composer */}
+          <div style={{ position: 'absolute', bottom: '100%', left: 0, right: 0, height: 0 }}>
+            {showSlashCommands && (
+              <SlashCommandsDropdown
+                inputValue={inputValue}
+                onSelect={(cmd) => {
+                  setInputValue('/' + cmd.id + ' ')
+                  setShowSlashCommands(false)
+                  setTimeout(() => textareaRef.current?.focus(), 0)
+                }}
+                onClose={() => setShowSlashCommands(false)}
+              />
+            )}
+          </div>
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: '10px', width: '100%' }}>
             {/* Tools + button */}
             <div style={{ position: 'relative' }} ref={toolsRef}>
@@ -270,10 +346,27 @@ function AppContent() {
               )}
 
               <textarea
+                ref={textareaRef}
                 placeholder="Ask something..."
                 value={inputValue}
-                onChange={(event) => setInputValue(event.target.value)}
-                onKeyDown={handleKeyDown}
+                onChange={(event) => {
+                  const val = event.target.value
+                  setInputValue(val)
+                  // Show slash commands when typing /
+                  if (val.startsWith('/')) {
+                    setShowSlashCommands(true)
+                  } else {
+                    setShowSlashCommands(false)
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape' && showSlashCommands) {
+                    setShowSlashCommands(false)
+                    e.preventDefault()
+                    return
+                  }
+                  handleKeyDown(e)
+                }}
                 onPaste={handlePaste}
                 rows={1}
                 style={{

@@ -26,3 +26,9 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     trace: list[dict[str, str]] | None = None
+
+
+class SlashCommandRequest(BaseModel):
+    command: str = Field(..., description="Slash command name: summarize or deepThink")
+    conversation_id: str | None = Field(default=None, description="Conversation ID for context")
+    topic: str | None = Field(default=None, description="Optional topic for deepThink")
