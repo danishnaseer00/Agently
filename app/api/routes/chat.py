@@ -111,7 +111,7 @@ def handle_slash_command(
     user_id: str = Depends(get_current_user),
 ):
     from app.services.slash_service import run_summarize, run_deep_think
-    from app.memory.db import get_conversation_messages
+    from app.memory.db import get_conversation_messages, save_message
 
     try:
         if request.command == "summarize":
@@ -122,6 +122,10 @@ def handle_slash_command(
             try:
                 fut = pool.submit(run_summarize, request.conversation_id, user_id)
                 summary = fut.result(timeout=SLASH_COMMAND_TIMEOUT)
+                # Save to database
+                now = datetime.now().isoformat()
+                save_message(f"user-slash-{now}", request.conversation_id, user_id, "user", f"/summarize", now)
+                save_message(f"assistant-slash-{now}", request.conversation_id, user_id, "assistant", summary, now)
                 return {"answer": summary}
             except concurrent.futures.TimeoutError:
                 print(f"[Slash] summarize timed out after {SLASH_COMMAND_TIMEOUT}s", file=sys.stderr)
@@ -145,6 +149,11 @@ def handle_slash_command(
                     messages if messages else None,
                 )
                 answer, _ = fut.result(timeout=SLASH_COMMAND_TIMEOUT)
+                # Save to database
+                now = datetime.now().isoformat()
+                topic_text = f" /{request.topic}" if request.topic else ""
+                save_message(f"user-slash-{now}", request.conversation_id, user_id, "user", f"/deepThink{topic_text}", now)
+                save_message(f"assistant-slash-{now}", request.conversation_id, user_id, "assistant", answer, now)
                 return {"answer": answer}
             except concurrent.futures.TimeoutError:
                 print(f"[Slash] deepThink timed out after {SLASH_COMMAND_TIMEOUT}s", file=sys.stderr)

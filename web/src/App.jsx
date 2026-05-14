@@ -99,7 +99,7 @@ function AppContent() {
     const topic = trimmed || ''
 
     const userMsg = { id: `user-${Date.now()}`, role: 'user', content: `/${cmd.id} ${topic}` }
-    setMessages((prev) => [...prev, userMsg, { id: `assistant-${Date.now()}`, role: 'assistant', content: '' }])
+    setMessages((prev) => [...prev, userMsg])
 
     setInputValue('')
     setIsThinking(true)
@@ -109,31 +109,19 @@ function AppContent() {
     try {
       const data = await sendSlashCommand(cmd.id, activeId, topic)
 
-      if (data.error) {
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.role === 'assistant' && m.content === ''
-              ? { ...m, content: `Error: ${data.error}` }
-              : m,
-          ),
-        )
-      } else {
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.role === 'assistant' && m.content === ''
-              ? { ...m, content: data.answer || 'No response' }
-              : m,
-          ),
-        )
+      const assistantMsg = {
+        id: `assistant-${Date.now()}`,
+        role: 'assistant',
+        content: data.error ? `Error: ${data.error}` : (data.answer || 'No response'),
       }
+      setMessages((prev) => [...prev, assistantMsg])
     } catch (error) {
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.role === 'assistant' && m.content === ''
-            ? { ...m, content: `Error: ${error.message}` }
-            : m,
-        ),
-      )
+      const assistantMsg = {
+        id: `assistant-${Date.now()}`,
+        role: 'assistant',
+        content: `Error: ${error.message}`,
+      }
+      setMessages((prev) => [...prev, assistantMsg])
     }
 
     setIsThinking(false)

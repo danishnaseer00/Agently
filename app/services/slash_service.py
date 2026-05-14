@@ -37,12 +37,16 @@ def run_summarize(conversation_id: str, user_id: str) -> str:
     llm = build_llm(settings, temperature=0.3)
 
     summary_prompt = (
-        "Summarize the following conversation in a concise, natural paragraph.\n\n"
+        "Summarize the conversation below.\n\n"
+        "Format:\n"
+        "Start with 'Here is the summary:' then list the key points as bullet points.And Highlight the main words.\n\n"
         "Rules:\n"
-        "- Output only the summary itself with no headings, sections, bullet points, or labels\n"
-        "- Do not start with phrases like 'Summary:', 'Main request:', 'Outcome:', or 'The conversation'\n"
-        "- Just write a flowing paragraph capturing what was discussed and what was concluded\n"
-        "- If there are multiple topics, weave them together naturally\n\n"
+        "- Focus ONLY on the content and information that was discussed — NOT on who said what\n"
+        "- Do NOT write things like 'The user asked...' or 'The assistant replied...'\n"
+        "- Just capture the facts, topics, questions, and conclusions directly\n"
+        "- Each bullet should be one complete point highlighting a key topic or theme from the conversation\n"
+        "- Keep it concise — 3 to 6 bullet points max\n"
+        "- Bold or emphasize the main topics so they stand out (e.g. **Topic Name**: explanation)\n\n"
         "Conversation:\n"
         "---\n"
         f"{transcript}\n"

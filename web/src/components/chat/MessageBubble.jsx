@@ -1,6 +1,11 @@
 import { formatMarkdown, linkify } from '../../utils/markdown.jsx'
 
 export default function MessageBubble({ message, onImageClick }) {
+  // Don't render empty assistant bubbles (placeholder for streaming)
+  if (message.role === 'assistant' && !message.content && !message.image) {
+    return null
+  }
+
   return (
     <div key={message.id} className={`message-bubble ${message.role}`}>
       {message.image && (
