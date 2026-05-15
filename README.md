@@ -1,3 +1,12 @@
+---
+title: Agently
+emoji: 🤖
+colorFrom: blue
+colorTo: purple
+sdk: docker
+pinned: false
+---
+
 # Agently
 
 An AI-powered research agent with RAG (Retrieval-Augmented Generation), vision analysis, tool calling, and web search capabilities. Built with FastAPI backend + React frontend.
