@@ -19,7 +19,7 @@ jobs:
           HF_SPACE_ID: ${{ secrets.HF_SPACE_ID }}
         run: |
           git clone https://huggingface.co/spaces/$HF_SPACE_ID hf-space
-          rsync -av --delete --exclude='.git' --exclude='.env' ./ hf-space/ || test $? -eq 24
+          rsync -av --delete --exclude='.git' --exclude='.env' --exclude='*.db' ./ hf-space/ || test $? -eq 24
           cd hf-space
           git config user.email "ci@deploy.dev"
           git config user.name "CI Deploy"
@@ -41,4 +41,3 @@ jobs:
           vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
           vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
           vercel-args: "--prod"
-          working-directory: ./web
