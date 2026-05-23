@@ -19,6 +19,19 @@ import ToolMenu from './components/documents/ToolMenu.jsx'
 import ErrorBoundary from './components/common/ErrorBoundary.jsx'
 import SignInPage from './components/auth/SignInPage.jsx'
 
+// Visually hidden style for file inputs — keeps them in the DOM for mobile browsers
+const hiddenInputStyle = {
+  position: 'absolute',
+  width: '1px',
+  height: '1px',
+  padding: 0,
+  margin: '-1px',
+  overflow: 'hidden',
+  clip: 'rect(0, 0, 0, 0)',
+  whiteSpace: 'nowrap',
+  border: 0,
+}
+
 function AppContent() {
   // Hooks
   const {
@@ -196,13 +209,14 @@ function AppContent() {
           onImageClick={openFullscreen}
         />
 
-        {/* Hidden file inputs */}
+        {/* Visually hidden file inputs — uses clip pattern instead of display:none for mobile browser compatibility */}
         <input
           ref={imageInputRef}
           type="file"
           accept="image/*"
           onChange={handleImageUpload}
-          style={{ display: 'none' }}
+          style={hiddenInputStyle}
+          tabIndex={-1}
         />
         <input
           ref={fileInputRef}
@@ -215,7 +229,8 @@ function AppContent() {
               e.target.value = ''
             }
           }}
-          style={{ display: 'none' }}
+          style={hiddenInputStyle}
+          tabIndex={-1}
         />
 
         <footer className="composer" style={{ position: 'relative', zIndex: 100, flexDirection: 'column' }}>

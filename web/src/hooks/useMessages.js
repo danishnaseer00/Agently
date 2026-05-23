@@ -73,49 +73,72 @@ export function useMessages({ activeId, refreshConversations }) {
 
       const decoder = new TextDecoder()
       let buffer = ''
+      let receivedAnyEvent = false
 
-      while (true) {
-        const { value, done } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        const parts = buffer.split('\n\n')
-        buffer = parts.pop() || ''
+      // Add a 90-second timeout for the entire response
+      // Resolves to true if timeout fires, false otherwise
+      const TIMEOUT_MS = 90000
+      const TIMEOUT = Symbol('timeout')
+      const timeoutPromise = new Promise((resolve) =>
+        setTimeout(() => resolve(TIMEOUT), TIMEOUT_MS)
+      )
 
-        for (const part of parts) {
-          if (!part.trim()) continue
-          const { event, data } = parseSsePayload(part)
-          let payload = {}
-          try {
-            payload = JSON.parse(data)
-          } catch {
-            payload = { text: data }
-          }
+      const readLoop = (async () => {
+        while (true) {
+          const { value, done } = await reader.read()
+          if (done) break
+          receivedAnyEvent = true
+          buffer += decoder.decode(value, { stream: true })
+          const parts = buffer.split('\n\n')
+          buffer = parts.pop() || ''
 
-          if (event === 'status') {
-            setStatusText(payload.state || 'Thinking...')
-          }
+          for (const part of parts) {
+            if (!part.trim()) continue
+            const { event, data } = parseSsePayload(part)
+            let payload = {}
+            try {
+              payload = JSON.parse(data)
+            } catch {
+              payload = { text: data }
+            }
 
-          if (event === 'tool') {
-            setStatusText(`Using tool: ${payload.tool || 'tool'}`)
-          }
+            if (event === 'status') {
+              setStatusText(payload.state || 'Thinking...')
+            }
 
-          if (event === 'chunk') {
-            setMessages((prev) => {
-              const lastIndex = prev.length - 1
-              return prev.map((m, i) =>
-                i === lastIndex && m.role === 'assistant'
-                  ? { ...m, content: `${m.content}${payload.text || ''}` }
-                  : m,
-              )
-            })
-          }
+            if (event === 'tool') {
+              setStatusText(`Using tool: ${payload.tool || 'tool'}`)
+            }
 
-          if (event === 'done') {
-            setIsThinking(false)
-            setStatusText('')
-            refreshConversations()
+            if (event === 'chunk') {
+              setMessages((prev) => {
+                const lastIndex = prev.length - 1
+                return prev.map((m, i) =>
+                  i === lastIndex && m.role === 'assistant'
+                    ? { ...m, content: `${m.content}${payload.text || ''}` }
+                    : m,
+                )
+              })
+            }
+
+            if (event === 'done') {
+              setIsThinking(false)
+              setStatusText('')
+              refreshConversations()
+            }
           }
         }
+      })()
+
+      const winner = await Promise.race([readLoop, timeoutPromise])
+
+      // If timeout won (resolved with TIMEOUT symbol), throw an error
+      if (winner === TIMEOUT) {
+        // If we received at least some data, the response is just slow — show a friendlier message
+        const msg = receivedAnyEvent
+          ? 'Response is taking longer than expected. The answer may still arrive — check back shortly.'
+          : 'The server did not respond. Please try again.'
+        throw new Error(msg)
       }
     } catch (error) {
       setMessages((prev) =>

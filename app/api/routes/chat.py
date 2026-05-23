@@ -5,7 +5,6 @@ import concurrent.futures
 import sys
 import traceback
 from datetime import datetime
-
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
@@ -90,7 +89,11 @@ def chat_stream(
 
     async def event_stream():
         yield sse("status", {"state": "thinking"})
-        answer, trace = run_research(executor, request.message, messages, doc_context)
+
+        # Run the blocking agent in a thread so SSE events can stream
+        answer, trace = await asyncio.to_thread(
+            run_research, executor, request.message, messages, doc_context,
+        )
 
         for step in format_trace(trace):
             yield sse("tool", step)
