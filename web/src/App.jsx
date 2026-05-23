@@ -212,6 +212,7 @@ function AppContent() {
         {/* Visually hidden file inputs — uses clip pattern instead of display:none for mobile browser compatibility */}
         <input
           ref={imageInputRef}
+          id="img-upload-input"
           type="file"
           accept="image/*"
           onChange={handleImageUpload}
@@ -220,6 +221,7 @@ function AppContent() {
         />
         <input
           ref={fileInputRef}
+          id="doc-upload-input"
           type="file"
           accept=".pdf,.txt,.docx"
           onChange={async (e) => {
@@ -265,13 +267,6 @@ function AppContent() {
 
               <ToolMenu
                 showTools={showTools}
-                setShowTools={setShowTools}
-                imageInputRef={imageInputRef}
-                fileInputRef={fileInputRef}
-                onImageUploadClick={() => {
-                  imageInputRef.current?.click()
-                  setShowTools(false)
-                }}
                 uploading={uploading}
                 uploadSuccess={uploadSuccess}
                 documents={documents}
@@ -281,7 +276,6 @@ function AppContent() {
                 onClearSelection={clearSelection}
                 useRag={useRag}
                 onToggleRag={setUseRag}
-                onUploadFile={() => fileInputRef.current?.click()}
                 availableTools={availableTools}
                 selectedTools={selectedTools}
                 onToggleTool={(toolName) => {

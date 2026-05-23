@@ -3,10 +3,6 @@ import DocumentItem from './DocumentItem.jsx'
 
 export default function ToolMenu({
   showTools,
-  setShowTools,
-  imageInputRef,
-  fileInputRef,
-  onImageUploadClick,
   uploading,
   uploadSuccess,
   documents,
@@ -16,7 +12,6 @@ export default function ToolMenu({
   onClearSelection,
   useRag,
   onToggleRag,
-  onUploadFile,
   availableTools,
   selectedTools,
   onToggleTool,
@@ -34,8 +29,9 @@ export default function ToolMenu({
         <div className="tools-box-header" style={{ paddingBottom: '8px', borderBottom: 'none' }}>
           <h3 style={{ margin: 0, fontSize: '0.9rem' }}> Image</h3>
         </div>
-        <button
-          onClick={onImageUploadClick}
+        <label
+          htmlFor="img-upload-input"
+          role="button"
           style={{
             width: '100%',
             padding: '8px 10px',
@@ -50,10 +46,11 @@ export default function ToolMenu({
             alignItems: 'center',
             justifyContent: 'center',
             gap: '8px',
+            boxSizing: 'border-box',
           }}
         >
           <span style={{ fontSize: '1.2rem' }}></span> Upload Image
-        </button>
+        </label>
       </div>
 
       {/* Documents Section */}
@@ -82,9 +79,9 @@ export default function ToolMenu({
         </div>
 
         <div style={{ marginBottom: '8px' }}>
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
+          <label
+            htmlFor={uploading ? undefined : 'doc-upload-input'}
+            role="button"
             style={{
               width: '100%',
               padding: '6px 10px',
@@ -96,10 +93,13 @@ export default function ToolMenu({
               opacity: uploading ? 0.6 : 1,
               fontSize: '0.8rem',
               fontWeight: 500,
+              display: 'block',
+              textAlign: 'center',
+              boxSizing: 'border-box',
             }}
           >
             {uploading ? 'Uploading...' : '+ Upload File'}
-          </button>
+          </label>
         </div>
 
         {uploadSuccess && (
