@@ -163,9 +163,11 @@ def handle_slash_command(
         traceback.print_exc(file=sys.stderr)
         err_msg = str(exc).lower()
         if any(kw in err_msg for kw in ("rate", "limit", "429", "token")):
-            return {"error": "Rate limit reached. Waiting a moment and try again."}
+            return {"error": "We're getting a lot of requests right now. Please wait a moment and try again."}
         if any(kw in err_msg for kw in ("timeout", "timed out", "deadline")):
-            return {"error": "Request timed out. Try again or use a simpler query."}
+            return {"error": "The request took too long to complete. Try again with a simpler query."}
         if any(kw in err_msg for kw in ("key", "auth", "unauthorized", "401")):
-            return {"error": "API key issue. Check your Groq API key."}
-        return {"error": "Something went wrong. Please try again."}
+            return {"error": "We're having trouble authenticating your request. Please try again."}
+        if any(kw in err_msg for kw in ("tool_use_failed", "badrequest", "400")):
+            return {"error": "We're having trouble processing your request. The result may be incomplete — please try again."}
+        return {"error": "We're having trouble processing your request right now. Please try again in a moment."}

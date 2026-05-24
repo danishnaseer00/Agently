@@ -161,7 +161,7 @@ export function useMessages({ activeId, refreshConversations }) {
       setMessages((prev) =>
         prev.map((m) =>
           m.role === 'assistant' && m.content === ''
-            ? { ...m, content: `Sorry, something went wrong: ${error.message}` }
+            ? { ...m, content: `${error.message}` }
             : m,
         ),
       )

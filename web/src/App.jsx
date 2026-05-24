@@ -126,14 +126,14 @@ function AppContent() {
       const assistantMsg = {
         id: `assistant-${Date.now()}`,
         role: 'assistant',
-        content: data.error ? `Sorry, something went wrong: ${data.error}` : (data.answer || 'No response'),
+        content: data.error ? data.error : (data.answer || 'No response'),
       }
       setMessages((prev) => [...prev, assistantMsg])
     } catch (error) {
       const assistantMsg = {
         id: `assistant-${Date.now()}`,
         role: 'assistant',
-        content: `Sorry, something went wrong: ${error.message}`,
+        content: `${error.message}`,
       }
       setMessages((prev) => [...prev, assistantMsg])
     }
@@ -291,6 +291,35 @@ function AppContent() {
                 toolsRef={toolsRef}
               />
             </div>
+
+            {/* RAG active badge — visible when RAG is on */}
+            {useRag && selectedDocuments.length > 0 && (
+              <div
+                onClick={() => setUseRag(false)}
+                title="RAG is active. Click to disable."
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '4px 10px',
+                  background: '#dbeafe',
+                  color: '#1e40af',
+                  borderRadius: '6px',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                  height: '28px',
+                  border: '1px solid #bfdbfe',
+                  userSelect: 'none',
+                }}
+              >
+                <span style={{ fontSize: '0.65rem' }}>⦿</span>
+                RAG: {selectedDocuments.length} doc{selectedDocuments.length > 1 ? 's' : ''}
+                <span style={{ marginLeft: '2px', fontSize: '0.7rem', opacity: 0.6 }}>✕</span>
+              </div>
+            )}
 
             {/* Input area */}
             <div style={{

@@ -17,6 +17,7 @@ export function useDocuments(activeId) {
     if (activeId) {
       loadDocumentsFromApi(activeId).then(setDocuments)
       setSelectedDocuments([])
+      setUseRag(false)
     }
   }, [activeId])
 

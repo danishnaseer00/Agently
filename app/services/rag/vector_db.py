@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import hashlib
+import warnings
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
@@ -22,6 +23,8 @@ class VectorStore:
         # Initialize Qdrant client
         if self.config.get_mode() == "remote":
             print(f"[VectorStore] Connecting to remote Qdrant: {self.config.get_url()}")
+            # Suppress version mismatch warnings on older clients
+            warnings.filterwarnings("ignore", message=".*Qdrant client version.*incompatible with server version.*")
             self.client = QdrantClient(
                 url=self.config.get_url(),
                 api_key=self.config.get_api_key(),

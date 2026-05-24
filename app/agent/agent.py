@@ -37,6 +37,17 @@ def _is_token_limit_error(exc: Exception) -> bool:
     ))
 
 
+def _is_tool_error(exc: Exception) -> bool:
+    """Check if the error is a Groq tool-call failure (400 / tool_use_failed)."""
+    err = str(exc).lower()
+    return any(kw in err for kw in (
+        "tool_use_failed",
+        "failed to call a function",
+        "badrequest",
+        "400",
+    ))
+
+
 def _build_context_block(
     system_msg: str,
     user_block: str,
@@ -88,25 +99,40 @@ def run_optimized_agent(
     raw_steps: list[dict[str, Any]] = []
 
     has_rag_context = "Reference Documents:" in chat_history
+    has_image_context = "[System Note:" in prompt
 
-    # ── RAG mode: no tools, no loop, just answer from docs ────────
-    if has_rag_context:
-        system_msg = (
-            "You are a helpful assistant answering questions using the provided reference documents.\n"
-            "\n"
-            "Rules:\n"
-            "1. Answer the user's question directly and concisely using the documents.\n"
-            "2. If the question is simple (e.g. 'what is this about'), give a one-sentence answer.\n"
-            "3. Do NOT add analysis, summaries, or extra details unless asked.\n"
-            "4. Use plain paragraphs. Do not over-format.\n"
-        )
+    # ── Direct answer mode: no tools, no loop, just answer from context ──
+    if has_rag_context or has_image_context:
+        if has_image_context:
+            system_msg = (
+                "You are a helpful assistant. A vision model has already analyzed the user's attached image.\n"
+                "\n"
+                "Rules:\n"
+                "1. Answer directly from the image analysis provided below. Do NOT use any tools.\n"
+                "2. If the question is simple (e.g. 'what is this'), give a concise 1-2 sentence answer.\n"
+                "3. Do NOT add extra analysis, summaries, or details unless asked.\n"
+                "4. Do NOT mention that you cannot see the image — the analysis is already done for you.\n"
+                "5. Format cleanly: use **bold** for key terms or subheadings, bullet points for lists or key takeaways, and paragraphs for explanations. Keep it readable — not excessively formatted.\n"
+            )
+            context_tag = "Image analysis"
+        else:
+            system_msg = (
+                "You are a helpful assistant answering questions using the provided reference documents.\n"
+                "\n"
+                "Rules:\n"
+                "1. Answer the user's question directly and concisely using the documents.\n"
+                "2. If the question is simple (e.g. 'what is this about'), give a one-sentence answer.\n"
+                "3. Do NOT add analysis, summaries, or extra details unless asked.\n"
+                "4. Format cleanly: use **bold** for key terms or subheadings, bullet points for lists or key takeaways, and paragraphs for explanations. Keep it readable — not excessively formatted.\n"
+            )
+            context_tag = "Reference documents"
         user_block = prompt
         if chat_history:
             user_block = f"{chat_history}\n\nUser question: {prompt}"
-        context_str = system_msg + f"\n\nUser question\n{user_block}"
+        context_str = system_msg + f"\n\n{context_tag}\n{user_block}"
         messages = [HumanMessage(content=context_str)]
         print(
-            f"[OptAgent] RAG mode — single LLM call, no tools",
+            f"[OptAgent] Direct mode ({context_tag}) — single LLM call, no tools",
             file=sys.stderr,
         )
         try:
@@ -114,7 +140,7 @@ def run_optimized_agent(
             final = response.content if hasattr(response, "content") else str(response)
             return _clean_response(final), []
         except Exception as exc:
-            return f"Sorry, I couldn't answer from the documents: {exc}", []
+            return f"Sorry, I couldn't answer: {exc}", []
 
     # ── Non-RAG mode: tool-calling agent loop ──────────────────────
     system_msg = (
@@ -130,8 +156,11 @@ def run_optimized_agent(
         "6. Present specific items you found (titles, names, data, dates).\n"
         "7. Do NOT write generic overviews from your training memory.\n"
         "8. Your answer MUST be grounded in what the tools returned.\n"
-        "9. Keep your answer clean and readable. Use plain paragraphs.\n"
-        "10. Use bullet lists, bold, or headings only if it genuinely helps readability.\n"
+        "9. Structure your answer like this:\n"
+        "   **Topic** — Short paragraph (2-3 sentences).\n"
+        "   - Key finding with detail\n"
+        "   - Another key finding\n"
+        "10. Use **bold** for topic names and key terms. Use bullet points (-) for findings and data. Keep paragraphs short — max 3 sentences. Never write one giant wall of text.\n"
     )
 
     user_block = prompt
@@ -157,57 +186,107 @@ def run_optimized_agent(
             round_llm = llm.bind_tools(tool_list, tool_choice="auto")
             response = round_llm.invoke(messages)
         except Exception as exc:
-            if not _is_token_limit_error(exc):
-                raise
+            if _is_token_limit_error(exc):
+                print(f"[OptAgent] Token-limit error (413/TPM), reducing context…",
+                      file=sys.stderr)
 
-            print(f"[OptAgent] Token-limit error (413/TPM), reducing context…",
-                  file=sys.stderr)
+                # Retry 1: keep last 2 compressed steps only
+                if len(compressed_history) > 2:
+                    compressed_history[:] = compressed_history[-2:]
+                    context_str = _build_context_block(
+                        system_msg, user_block, compressed_history,
+                    )
+                    messages = [HumanMessage(content=context_str)]
+                    print(f"[OptAgent] Retry with last 2 steps only", file=sys.stderr)
+                    time.sleep(1)
+                    try:
+                        round_llm = llm.bind_tools(tool_list, tool_choice="auto")
+                        response = round_llm.invoke(messages)
+                    except Exception:
+                        response = None
 
-            # Retry 1: keep last 2 compressed steps only
-            if len(compressed_history) > 2:
-                compressed_history[:] = compressed_history[-2:]
-                context_str = _build_context_block(
-                    system_msg, user_block, compressed_history,
-                )
-                messages = [HumanMessage(content=context_str)]
-                print(f"[OptAgent] Retry with last 2 steps only", file=sys.stderr)
-                time.sleep(1)
-                try:
-                    round_llm = llm.bind_tools(tool_list, tool_choice="auto")
-                    response = round_llm.invoke(messages)
-                except Exception:
-                    response = None
+                # Retry 2: clear all history
+                if response is None:
+                    compressed_history.clear()
+                    context_str = _build_context_block(
+                        system_msg, user_block, compressed_history,
+                    )
+                    messages = [HumanMessage(content=context_str)]
+                    print(f"[OptAgent] Retry with zero history", file=sys.stderr)
+                    time.sleep(2)
+                    try:
+                        round_llm = llm.bind_tools(tool_list, tool_choice="auto")
+                        response = round_llm.invoke(messages)
+                    except Exception:
+                        response = None
 
-            # Retry 2: clear all history
-            if response is None:
-                compressed_history.clear()
-                context_str = _build_context_block(
-                    system_msg, user_block, compressed_history,
-                )
-                messages = [HumanMessage(content=context_str)]
-                print(f"[OptAgent] Retry with zero history", file=sys.stderr)
-                time.sleep(2)
-                try:
-                    round_llm = llm.bind_tools(tool_list, tool_choice="auto")
-                    response = round_llm.invoke(messages)
-                except Exception:
-                    response = None
+                # Retry 3: graceful fallback
+                if response is None:
+                    lines = "\n".join(
+                        f"- {s}" for s in compressed_history[-3:] if compressed_history
+                    ) or "No results were obtained before the limit was reached."
+                    raw_steps.append({
+                        "iteration": iteration + 1,
+                        "tool": "_fallback",
+                        "error": str(exc),
+                    })
+                    return (
+                        "I hit a token limit while researching your question. "
+                        "Here is what I gathered so far. "
+                        "Try a shorter or more specific query:\n\n"
+                        + lines
+                    ), raw_steps
 
-            # Retry 3: graceful fallback
-            if response is None:
-                lines = "\n".join(
-                    f"- {s}" for s in compressed_history[-3:] if compressed_history
-                ) or "No results were obtained before the limit was reached."
+            elif _is_tool_error(exc):
+                print(f"[OptAgent] Tool-call error, retrying with tools…",
+                      file=sys.stderr)
                 raw_steps.append({
                     "iteration": iteration + 1,
-                    "tool": "_fallback",
+                    "tool": "_tool_error",
                     "error": str(exc),
                 })
+                if compressed_history:
+                    return _synthesize_final(
+                        prompt, compressed_history, llm, tools=list(tool_map.values())
+                    ), raw_steps
+                # No research yet — retry same round with tools (transient Groq issue)
+                retried = False
+                for retry in range(2):
+                    time.sleep(1 + retry)
+                    print(f"[OptAgent] Retry {retry + 1}/2 with tools…", file=sys.stderr)
+                    try:
+                        round_llm = llm.bind_tools(tool_list, tool_choice="auto")
+                        response = round_llm.invoke(messages)
+                        retried = True
+                        break
+                    except Exception:
+                        continue
+                if retried:
+                    # If retry returned a final answer, return it. Otherwise process tool calls normally.
+                    if not response.tool_calls:
+                        final = response.content if hasattr(response, "content") else str(response)
+                        return _clean_response(final), raw_steps
+                else:
+                    return (
+                        "We're having trouble processing your request right now. "
+                        "Please try again in a moment."
+                    ), raw_steps
+
+            else:
+                print(f"[OptAgent] Unexpected error, synthesizing from gathered research…",
+                      file=sys.stderr)
+                raw_steps.append({
+                    "iteration": iteration + 1,
+                    "tool": "_error",
+                    "error": str(exc),
+                })
+                if compressed_history:
+                    return _synthesize_final(
+                        prompt, compressed_history, llm, tools=list(tool_map.values())
+                    ), raw_steps
                 return (
-                    "I hit a token limit while researching your question. "
-                    "Here is what I gathered so far. "
-                    "Try a shorter or more specific query:\n\n"
-                    + lines
+                    "We're having trouble processing your request right now. "
+                    "Please try again in a moment."
                 ), raw_steps
 
         # ── no tool call → final answer ───────────────────────────────
@@ -307,8 +386,23 @@ def _synthesize_final(
         "Write a clean, direct answer that addresses the user's question.\n"
         "Present specific findings (titles, data, facts) from the research.\n"
         "Do NOT write generic background from your training memory.\n"
-        "Keep it simple — paragraphs are fine. Use bold or bullet lists only\n"
-        "where it genuinely improves readability.\n"
+        "Structure your answer like this:\n"
+        "\n"
+        "**Topic Name**\n"
+        "Short paragraph (2-3 sentences).\n"
+        "- Key finding\n"
+        "- Key finding\n"
+        "\n"
+        "**Next Topic**\n"
+        "Short paragraph.\n"
+        "- Key finding\n"
+        "\n"
+        "### Sources\n"
+        "- Source — description\n"
+        "- Source — description\n"
+        "\n"
+        "Keep paragraphs short (max 3 sentences). Use bullet points for findings.\n"
+        "End with a Sources section listing each source on its own line.\n"
     )
 
     try:

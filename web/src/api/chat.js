@@ -44,7 +44,7 @@ export async function sendChatMessage(params) {
 
   if (!response.ok) {
     const errorBody = await response.text().catch(() => '')
-    throw new Error(`Request failed: ${response.status}${errorBody ? ` — ${errorBody}` : ''}`)
+    throw new Error(`We're having trouble processing your request right now. Please try again.`)
   }
 
   if (!response.body) {
@@ -83,7 +83,7 @@ export async function sendSlashCommand(command, conversationId, topic = '') {
 
     if (!response.ok) {
       const errorBody = await response.text().catch(() => '')
-      throw new Error(`Slash command failed: ${response.status}${errorBody ? ` — ${errorBody}` : ''}`)
+      throw new Error(`We're having trouble processing your request right now. Please try again.`)
     }
 
     return response.json()
