@@ -40,7 +40,7 @@ def build_optimized_executor(
     max_results: int,
     tool_names: list[str] | None = None,
     model_name: str | None = None,
-    max_iterations: int = 4,
+    max_iterations: int = 8,
     compress_chars: int = 1200,
     tool_output_limit: int = 1500,
 ) -> dict:

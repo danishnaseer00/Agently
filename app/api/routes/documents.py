@@ -48,6 +48,8 @@ async def upload_document(
 
         # Parse document
         text = parse_document(tmp_path, content_type)
+        # Sanitize null bytes — PostgreSQL rejects \u0000 in TEXT columns
+        text = text.replace('\0', '')
         print(f"[API] Document parsed, length: {len(text)}", file=sys.stderr)
 
         # Recursive chunking

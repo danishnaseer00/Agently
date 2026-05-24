@@ -36,7 +36,7 @@ def run_deep_think(
         max_results=8,
         tool_names=["web_search", "fetch_url"],
         model_name=settings.deep_think_model,
-        max_iterations=4,
+        max_iterations=8,
         compress_chars=1200,
         tool_output_limit=1500,
     )

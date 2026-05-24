@@ -17,7 +17,7 @@ from app.services.research_service import run_research
 from app.services.rag import get_rag_retrieval
 from app.memory.db import save_conversation, save_message
 
-SLASH_COMMAND_TIMEOUT = 45  # seconds
+
 
 router = APIRouter(tags=["chat"])
 
@@ -124,15 +124,12 @@ def handle_slash_command(
             pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
             try:
                 fut = pool.submit(run_summarize, request.conversation_id, user_id)
-                summary = fut.result(timeout=SLASH_COMMAND_TIMEOUT)
+                summary = fut.result()
                 # Save to database
                 now = datetime.now().isoformat()
                 save_message(f"user-slash-{now}", request.conversation_id, user_id, "user", f"/summarize", now)
                 save_message(f"assistant-slash-{now}", request.conversation_id, user_id, "assistant", summary, now)
                 return {"answer": summary}
-            except concurrent.futures.TimeoutError:
-                print(f"[Slash] summarize timed out after {SLASH_COMMAND_TIMEOUT}s", file=sys.stderr)
-                return {"error": "Summarize timed out. The conversation may be too long."}
             finally:
                 pool.shutdown(wait=False)
 
@@ -151,20 +148,24 @@ def handle_slash_command(
                     request.topic,
                     messages if messages else None,
                 )
-                answer, _ = fut.result(timeout=SLASH_COMMAND_TIMEOUT)
+                answer, _ = fut.result()
                 # Save to database
                 now = datetime.now().isoformat()
                 topic_text = f" /{request.topic}" if request.topic else ""
                 save_message(f"user-slash-{now}", request.conversation_id, user_id, "user", f"/deepThink{topic_text}", now)
                 save_message(f"assistant-slash-{now}", request.conversation_id, user_id, "assistant", answer, now)
                 return {"answer": answer}
-            except concurrent.futures.TimeoutError:
-                print(f"[Slash] deepThink timed out after {SLASH_COMMAND_TIMEOUT}s", file=sys.stderr)
-                return {"error": "Deep research timed out. Try a more specific topic."}
             finally:
                 pool.shutdown(wait=False)
 
         return {"error": f"Unknown command: {request.command}"}
     except Exception as exc:
         traceback.print_exc(file=sys.stderr)
-        return {"error": f"Command failed: {str(exc)}"}
+        err_msg = str(exc).lower()
+        if any(kw in err_msg for kw in ("rate", "limit", "429", "token")):
+            return {"error": "Rate limit reached. Waiting a moment and try again."}
+        if any(kw in err_msg for kw in ("timeout", "timed out", "deadline")):
+            return {"error": "Request timed out. Try again or use a simpler query."}
+        if any(kw in err_msg for kw in ("key", "auth", "unauthorized", "401")):
+            return {"error": "API key issue. Check your Groq API key."}
+        return {"error": "Something went wrong. Please try again."}

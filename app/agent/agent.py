@@ -1,27 +1,13 @@
-"""Agent building and execution.
-
-Contains:
-  - build_agent()         — standard LangChain AgentExecutor builder
-  - run_optimized_agent() — custom loop with context compression & 413 retry
-"""
-
 from __future__ import annotations
-
 import json
 import sys
 import time
 from collections.abc import Sequence
 from typing import Any
-
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.messages import HumanMessage
-
 from app.agent.parser import build_prompt
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  Standard AgentExecutor builder
-# ═══════════════════════════════════════════════════════════════════════
 
 def build_agent(llm, tools: Sequence, max_iterations: int = 8) -> AgentExecutor:
     tools_desc = "\n".join(
@@ -40,15 +26,15 @@ def build_agent(llm, tools: Sequence, max_iterations: int = 8) -> AgentExecutor:
         max_iterations=max_iterations,
     )
 
-
-# ═══════════════════════════════════════════════════════════════════════
-#  Optimized context-compressing loop (for deepThink / token-sensitive use)
-# ═══════════════════════════════════════════════════════════════════════
-
+# For optimized agent
 def _is_token_limit_error(exc: Exception) -> bool:
     err = str(exc).lower()
-    return any(kw in err for kw in ("413", "request too large", "ratelimit",
-                                    "tokens per minute", "token limit"))
+    return any(kw in err for kw in (
+        "413", "request too large",
+        "ratelimit", "rate limit",
+        "429", "too many requests",
+        "tokens per minute", "token limit",
+    ))
 
 
 def _build_context_block(
@@ -75,7 +61,7 @@ def run_optimized_agent(
     llm: Any,
     prompt: str,
     chat_history: str = "",
-    max_iterations: int = 4,
+    max_iterations: int = 8,
     compress_chars: int = 1200,
     tool_output_limit: int = 1500,
 ) -> tuple[str, list[dict[str, Any]]]:
@@ -126,7 +112,11 @@ def run_optimized_agent(
         )
 
         try:
-            response = llm.invoke(messages)
+            # Re-bind tools each round to ensure they're always in the API request
+            # Prevents Groq's 'tool was not in request.tools' rejection
+            tool_list = list(tool_map.values())
+            round_llm = llm.bind_tools(tool_list, tool_choice="auto")
+            response = round_llm.invoke(messages)
         except Exception as exc:
             if not _is_token_limit_error(exc):
                 raise
@@ -144,7 +134,8 @@ def run_optimized_agent(
                 print(f"[OptAgent] Retry with last 2 steps only", file=sys.stderr)
                 time.sleep(1)
                 try:
-                    response = llm.invoke(messages)
+                    round_llm = llm.bind_tools(tool_list, tool_choice="auto")
+                    response = round_llm.invoke(messages)
                 except Exception:
                     response = None
 
@@ -158,7 +149,8 @@ def run_optimized_agent(
                 print(f"[OptAgent] Retry with zero history", file=sys.stderr)
                 time.sleep(2)
                 try:
-                    response = llm.invoke(messages)
+                    round_llm = llm.bind_tools(tool_list, tool_choice="auto")
+                    response = round_llm.invoke(messages)
                 except Exception:
                     response = None
 
@@ -229,7 +221,7 @@ def run_optimized_agent(
         " Asking LLM to synthesize final answer.",
         file=sys.stderr,
     )
-    return _synthesize_final(prompt, compressed_history, llm), raw_steps
+    return _synthesize_final(prompt, compressed_history, llm, tools=list(tool_map.values())), raw_steps
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -260,6 +252,7 @@ def _synthesize_final(
     prompt: str,
     compressed_history: list[str],
     llm: Any,
+    tools: Sequence | None = None,
 ) -> str:
     if not compressed_history:
         return (
@@ -278,7 +271,12 @@ def _synthesize_final(
     )
 
     try:
-        resp = llm.invoke([HumanMessage(content=synthesis_prompt)])
+        # Re-bind tools for synthesis call too (no tool calls expected, but defensive)
+        if tools:
+            synthesis_llm = llm.bind_tools(list(tools), tool_choice="none")
+        else:
+            synthesis_llm = llm
+        resp = synthesis_llm.invoke([HumanMessage(content=synthesis_prompt)])
         text = resp.content.strip() if hasattr(resp, "content") else str(resp).strip()
         return _clean_response(text)
     except Exception:
