@@ -100,11 +100,33 @@ export async function uploadFile(url, file, params = {}) {
   const query = new URLSearchParams(params).toString()
   const fullUrl = query ? `${url}?${query}` : url
 
-  const res = await fetch(`${API_BASE}${fullUrl}`, {
-    method: 'POST',
-    headers: authHeaders(),
-    body: formData,
-  })
-  if (!res.ok) return null
-  return res.json()
+  let retries = 0
+
+  const doFetch = async () => {
+    const res = await fetch(`${API_BASE}${fullUrl}`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: formData,
+    })
+
+    // On 401, try refreshing the token once and retry
+    if (res.status === 401 && retries < 1) {
+      retries++
+      // FormData can only be sent once, need to recreate
+      const retryFormData = new FormData()
+      retryFormData.append('file', file)
+      const refreshed = await refreshAuthToken()
+      if (refreshed) {
+        return doFetch()
+      }
+    }
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      throw new Error(`Upload failed (${res.status}): ${body}`)
+    }
+    return res.json()
+  }
+
+  return doFetch()
 }

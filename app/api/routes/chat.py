@@ -12,7 +12,7 @@ from app.api.deps import get_current_user
 from app.api.schemas.chat import ChatRequest, ChatResponse, SlashCommandRequest
 from app.api.helpers.sse import chunk_text, sse
 from app.api.helpers.trace import format_trace
-from app.services.chat_executor import build_executor
+from app.services.chat_executor import build_compressed_chat_executor
 from app.services.research_service import run_research
 from app.services.rag import get_rag_retrieval
 from app.memory.db import save_conversation, save_message
@@ -55,7 +55,7 @@ def chat(
     messages = [item.model_dump() for item in request.history]
     messages.append({"role": "user", "content": request.message})
 
-    executor = build_executor(request.temperature, request.max_results, request.tool_names)
+    executor = build_compressed_chat_executor(request.temperature, request.max_results, request.tool_names, getattr(request, 'model_name', None))
     doc_context = _get_rag_context(request)
 
     answer, trace = run_research(executor, request.message, messages, doc_context)
@@ -79,7 +79,7 @@ def chat_stream(
     messages = [item.model_dump() for item in request.history]
     messages.append({"role": "user", "content": request.message})
 
-    executor = build_executor(request.temperature, request.max_results, request.tool_names)
+    executor = build_compressed_chat_executor(request.temperature, request.max_results, request.tool_names, getattr(request, 'model_name', None))
     doc_context = _get_rag_context(request)
 
     conv_id = request.conversation_id or f"conv-{datetime.now().timestamp()}"

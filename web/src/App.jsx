@@ -62,6 +62,7 @@ function AppContent() {
     setUseRag,
     uploading,
     uploadSuccess,
+    uploadError,
     uploadDocument,
     deleteDocument,
     toggleDocument,
@@ -125,14 +126,14 @@ function AppContent() {
       const assistantMsg = {
         id: `assistant-${Date.now()}`,
         role: 'assistant',
-        content: data.error ? `Error: ${data.error}` : (data.answer || 'No response'),
+        content: data.error ? `Sorry, something went wrong: ${data.error}` : (data.answer || 'No response'),
       }
       setMessages((prev) => [...prev, assistantMsg])
     } catch (error) {
       const assistantMsg = {
         id: `assistant-${Date.now()}`,
         role: 'assistant',
-        content: `Error: ${error.message}`,
+        content: `Sorry, something went wrong: ${error.message}`,
       }
       setMessages((prev) => [...prev, assistantMsg])
     }
@@ -223,7 +224,7 @@ function AppContent() {
           ref={fileInputRef}
           id="doc-upload-input"
           type="file"
-          accept=".pdf,.txt,.docx"
+          accept="application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           onChange={async (e) => {
             const file = e.target.files?.[0]
             if (file) {
@@ -269,6 +270,7 @@ function AppContent() {
                 showTools={showTools}
                 uploading={uploading}
                 uploadSuccess={uploadSuccess}
+                uploadError={uploadError}
                 documents={documents}
                 selectedDocuments={selectedDocuments}
                 onToggleDocument={toggleDocument}

@@ -11,6 +11,7 @@ export function useDocuments(activeId) {
   const [useRag, setUseRag] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [uploadSuccess, setUploadSuccess] = useState('')
+  const [uploadError, setUploadError] = useState('')
 
   useEffect(() => {
     if (activeId) {
@@ -20,26 +21,41 @@ export function useDocuments(activeId) {
   }, [activeId])
 
   useEffect(() => {
-    if (uploadSuccess) {
-      const timer = setTimeout(() => setUploadSuccess(''), 3000)
+    if (uploadSuccess || uploadError) {
+      const timer = setTimeout(() => {
+        setUploadSuccess('')
+        setUploadError('')
+      }, 4000)
       return () => clearTimeout(timer)
     }
-  }, [uploadSuccess])
+  }, [uploadSuccess, uploadError])
 
   const uploadDocument = useCallback(async (file) => {
     if (!file || !activeId) return
     setUploading(true)
-    const result = await uploadDocumentToApi(file, activeId)
-    setUploading(false)
-    if (result) {
-      setUploadSuccess(`Uploaded: ${file.name}`)
-      const docs = await loadDocumentsFromApi(activeId)
-      setDocuments(docs)
-      if (result.document_id) {
-        setSelectedDocuments((prev) => [...prev, result.document_id])
+    setUploadError('')
+    setUploadSuccess('')
+    try {
+      const result = await uploadDocumentToApi(file, activeId)
+      if (result && result.status !== 'failed') {
+        setUploadSuccess(`Uploaded: ${file.name}`)
+        const docs = await loadDocumentsFromApi(activeId)
+        setDocuments(docs)
+        if (result.document_id) {
+          setSelectedDocuments((prev) => [...prev, result.document_id])
+        }
+        return result
+      } else {
+        const errMsg = result?.error || 'Upload failed. Please try again.'
+        setUploadError(errMsg)
+        return null
       }
+    } catch (err) {
+      setUploadError(err.message || 'Upload failed. Please try again.')
+      return null
+    } finally {
+      setUploading(false)
     }
-    return result
   }, [activeId])
 
   const deleteDocument = useCallback(async (docId) => {
@@ -76,6 +92,7 @@ export function useDocuments(activeId) {
     setUseRag,
     uploading,
     uploadSuccess,
+    uploadError,
     uploadDocument,
     deleteDocument,
     toggleDocument,

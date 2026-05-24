@@ -49,10 +49,17 @@ def _build_context_block(
             parts.append(f"  {i}. {step}")
         parts.append("\n\nContinue researching or provide your final answer.")
     else:
-        parts.append(
-            "\n\nResearch this question using the available tools."
-            " Start by searching the web."
-        )
+        if "Reference Documents:" in user_block:
+            parts.append(
+                "\n\nAnswer the user's question using the reference documents above."
+                " Be concise — give a direct answer. Use tools only if the"
+                " documents don't contain the answer."
+            )
+        else:
+            parts.append(
+                "\n\nResearch this question using the available tools."
+                " Start by searching the web."
+            )
     return "".join(parts)
 
 
@@ -80,6 +87,36 @@ def run_optimized_agent(
     compressed_history: list[str] = []
     raw_steps: list[dict[str, Any]] = []
 
+    has_rag_context = "Reference Documents:" in chat_history
+
+    # ── RAG mode: no tools, no loop, just answer from docs ────────
+    if has_rag_context:
+        system_msg = (
+            "You are a helpful assistant answering questions using the provided reference documents.\n"
+            "\n"
+            "Rules:\n"
+            "1. Answer the user's question directly and concisely using the documents.\n"
+            "2. If the question is simple (e.g. 'what is this about'), give a one-sentence answer.\n"
+            "3. Do NOT add analysis, summaries, or extra details unless asked.\n"
+            "4. Use plain paragraphs. Do not over-format.\n"
+        )
+        user_block = prompt
+        if chat_history:
+            user_block = f"{chat_history}\n\nUser question: {prompt}"
+        context_str = system_msg + f"\n\nUser question\n{user_block}"
+        messages = [HumanMessage(content=context_str)]
+        print(
+            f"[OptAgent] RAG mode — single LLM call, no tools",
+            file=sys.stderr,
+        )
+        try:
+            response = llm.invoke(messages)
+            final = response.content if hasattr(response, "content") else str(response)
+            return _clean_response(final), []
+        except Exception as exc:
+            return f"Sorry, I couldn't answer from the documents: {exc}", []
+
+    # ── Non-RAG mode: tool-calling agent loop ──────────────────────
     system_msg = (
         f"You are a research assistant with access to these tools:\n"
         f"{tool_descs}\n\n"
@@ -90,9 +127,11 @@ def run_optimized_agent(
         "3. Decide: call another tool to gather more, OR provide your final answer.\n"
         "4. When you have enough information, answer the user directly.\n"
         "5. Do NOT ask the user for permission — just proceed.\n"
-        "6. Present **specific items** you found (titles, names, data, dates).\n"
+        "6. Present specific items you found (titles, names, data, dates).\n"
         "7. Do NOT write generic overviews from your training memory.\n"
         "8. Your answer MUST be grounded in what the tools returned.\n"
+        "9. Keep your answer clean and readable. Use plain paragraphs.\n"
+        "10. Use bullet lists, bold, or headings only if it genuinely helps readability.\n"
     )
 
     user_block = prompt
@@ -262,12 +301,14 @@ def _synthesize_final(
 
     synthesis_prompt = (
         "Synthesize a final answer based on the research summaries below.\n\n"
-        "### Research summaries\n"
+        "Research summaries:\n"
         + "\n".join(f"- {s}" for s in compressed_history)
-        + "\n\n### Instructions\n"
-        "Write a well-structured answer that directly addresses the user's question. "
-        "Present specific findings (titles, data, facts) from the research. "
-        "Do NOT write generic background from your training memory."
+        + "\n\nInstructions:\n"
+        "Write a clean, direct answer that addresses the user's question.\n"
+        "Present specific findings (titles, data, facts) from the research.\n"
+        "Do NOT write generic background from your training memory.\n"
+        "Keep it simple — paragraphs are fine. Use bold or bullet lists only\n"
+        "where it genuinely improves readability.\n"
     )
 
     try:

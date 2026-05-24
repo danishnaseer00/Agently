@@ -5,6 +5,7 @@ export default function ToolMenu({
   showTools,
   uploading,
   uploadSuccess,
+  uploadError,
   documents,
   selectedDocuments,
   onToggleDocument,
@@ -101,6 +102,20 @@ export default function ToolMenu({
             {uploading ? 'Uploading...' : '+ Upload File'}
           </label>
         </div>
+
+        {uploadError && (
+          <div style={{
+            padding: '6px 8px',
+            background: '#fee2e2',
+            color: '#991b1b',
+            borderRadius: '4px',
+            fontSize: '0.75rem',
+            marginBottom: '8px',
+            wordBreak: 'break-word',
+          }}>
+            ✗ {uploadError}
+          </div>
+        )}
 
         {uploadSuccess && (
           <div style={{

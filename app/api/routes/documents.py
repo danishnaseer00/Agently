@@ -7,7 +7,7 @@ import tempfile
 import traceback
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
 
 from app.api.deps import get_current_user
 from app.api.schemas.documents import DocumentMetadata
@@ -15,6 +15,7 @@ from app.memory.db import (
     delete_document,
     get_document_chunks,
     get_documents,
+    save_conversation,
     save_document,
     save_document_chunk,
 )
@@ -64,6 +65,10 @@ async def upload_document(
         doc_id = f"doc-{datetime.now().timestamp()}"
         print(f"[API] Generated doc_id: {doc_id}", file=sys.stderr)
 
+        # Ensure conversation exists before saving document (FK constraint)
+        now = datetime.now().isoformat()
+        save_conversation(conversation_id, user_id, "New chat", now, now)
+
         # Save to database
         save_document(doc_id, conversation_id, user_id, file.filename, content_type, len(content))
         print(f"[API] Saved to database", file=sys.stderr)
@@ -89,7 +94,7 @@ async def upload_document(
         }
     except Exception as exc:
         traceback.print_exc(file=sys.stderr)
-        return {"error": str(exc), "status": "failed"}
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.get("/api/documents")
@@ -135,4 +140,4 @@ def delete_doc(
         delete_document(doc_id, user_id)
         return {"status": "deleted"}
     except Exception as exc:
-        return {"error": str(exc), "status": "failed"}
+        raise HTTPException(status_code=500, detail=str(exc))

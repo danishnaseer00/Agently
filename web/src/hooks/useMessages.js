@@ -75,13 +75,32 @@ export function useMessages({ activeId, refreshConversations }) {
       let buffer = ''
       let receivedAnyEvent = false
 
-      // Add a 90-second timeout for the entire response
-      // Resolves to true if timeout fires, false otherwise
-      const TIMEOUT_MS = 90000
-      const TIMEOUT = Symbol('timeout')
-      const timeoutPromise = new Promise((resolve) =>
-        setTimeout(() => resolve(TIMEOUT), TIMEOUT_MS)
-      )
+      // Track whether timeout has fired — if so, the readLoop is still running
+      // and will populate the message naturally when chunks arrive.
+      let slowResponse = false
+
+      // 90-second timeout: show friendly status instead of replacing message with "Error:"
+      const SLOW_MS = 90000
+      const slowTimer = setTimeout(() => {
+        slowResponse = true
+        setStatusText(receivedAnyEvent
+          ? 'Still working on it...'
+          : 'Waiting for the response...')
+
+        // Safety net: if still no data after another 2 minutes, show fallback text
+        setTimeout(() => {
+          setMessages((prev) => {
+            const lastIndex = prev.length - 1
+            return prev.map((m, i) =>
+              i === lastIndex && m.role === 'assistant' && m.content === ''
+                ? { ...m, content: 'The server did not respond. Please try again.' }
+                : m,
+            )
+          })
+          setIsThinking(false)
+          setStatusText('')
+        }, 120000)
+      }, SLOW_MS)
 
       const readLoop = (async () => {
         while (true) {
@@ -111,17 +130,23 @@ export function useMessages({ activeId, refreshConversations }) {
             }
 
             if (event === 'chunk') {
+              // If timeout previously fired, update status so user sees progress
+              if (slowResponse) {
+                setStatusText('Receiving response...')
+              }
               setMessages((prev) => {
                 const lastIndex = prev.length - 1
+                const content = prev[lastIndex]?.content || ''
                 return prev.map((m, i) =>
                   i === lastIndex && m.role === 'assistant'
-                    ? { ...m, content: `${m.content}${payload.text || ''}` }
+                    ? { ...m, content: `${content}${payload.text || ''}` }
                     : m,
                 )
               })
             }
 
             if (event === 'done') {
+              clearTimeout(slowTimer)
               setIsThinking(false)
               setStatusText('')
               refreshConversations()
@@ -130,21 +155,13 @@ export function useMessages({ activeId, refreshConversations }) {
         }
       })()
 
-      const winner = await Promise.race([readLoop, timeoutPromise])
-
-      // If timeout won (resolved with TIMEOUT symbol), throw an error
-      if (winner === TIMEOUT) {
-        // If we received at least some data, the response is just slow — show a friendlier message
-        const msg = receivedAnyEvent
-          ? 'Response is taking longer than expected. The answer may still arrive — check back shortly.'
-          : 'The server did not respond. Please try again.'
-        throw new Error(msg)
-      }
+      await readLoop
     } catch (error) {
+      // Only catch genuine errors (network failure, server error) — not timeout
       setMessages((prev) =>
         prev.map((m) =>
           m.role === 'assistant' && m.content === ''
-            ? { ...m, content: `Error: ${error.message}` }
+            ? { ...m, content: `Sorry, something went wrong: ${error.message}` }
             : m,
         ),
       )
