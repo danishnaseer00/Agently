@@ -3,6 +3,7 @@ import json
 import sys
 import time
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.messages import HumanMessage
@@ -58,7 +59,10 @@ def _build_context_block(
         parts.append("\n\n## Research so far (compressed)")
         for i, step in enumerate(compressed_history, 1):
             parts.append(f"  {i}. {step}")
-        parts.append("\n\nContinue researching or provide your final answer.")
+        parts.append("\n\nContinue researching or provide your final answer."
+            " When providing the final answer, use **bold** for topic names,"
+            " short paragraphs (2-3 sentences), bullet points for findings, and"
+            " include a Sources section.")
     else:
         if "Reference Documents:" in user_block:
             parts.append(
@@ -112,7 +116,7 @@ def run_optimized_agent(
                 "2. If the question is simple (e.g. 'what is this'), give a concise 1-2 sentence answer.\n"
                 "3. Do NOT add extra analysis, summaries, or details unless asked.\n"
                 "4. Do NOT mention that you cannot see the image — the analysis is already done for you.\n"
-                "5. Format cleanly: use **bold** for key terms or subheadings, bullet points for lists or key takeaways, and paragraphs for explanations. Keep it readable — not excessively formatted.\n"
+                "5. Format cleanly: use **bold** for key terms, bullet points for lists, and paragraphs for explanations. Keep it readable.\n"
             )
             context_tag = "Image analysis"
         else:
@@ -120,10 +124,10 @@ def run_optimized_agent(
                 "You are a helpful assistant answering questions using the provided reference documents.\n"
                 "\n"
                 "Rules:\n"
-                "1. Answer the user's question directly and concisely using the documents.\n"
-                "2. If the question is simple (e.g. 'what is this about'), give a one-sentence answer.\n"
+                "1. Answer the user's question based on the provided documents.\n"
+                "2. If the question is simple (e.g. 'what is this about'), give to the point answer in 3-4 lines.\n"
                 "3. Do NOT add analysis, summaries, or extra details unless asked.\n"
-                "4. Format cleanly: use **bold** for key terms or subheadings, bullet points for lists or key takeaways, and paragraphs for explanations. Keep it readable — not excessively formatted.\n"
+                "4. Format cleanly: use **bold** for key terms, bullet points for lists, and paragraphs for explanations. Keep it readable.\n"
             )
             context_tag = "Reference documents"
         user_block = prompt
@@ -143,10 +147,15 @@ def run_optimized_agent(
             return f"Sorry, I couldn't answer: {exc}", []
 
     # ── Non-RAG mode: tool-calling agent loop ──────────────────────
+    _today = datetime.now().strftime("%B %d, %Y")
     system_msg = (
         f"You are a research assistant with access to these tools:\n"
         f"{tool_descs}\n\n"
         f"Available tools: {tool_names}\n\n"
+        f"CURRENT DATE: {_today}.\n"
+        "Search for the MOST RECENT information — try 2026 first, then 2025.\n"
+        "Include the year in your search queries (e.g. \"2026 computer vision\") to get fresh results.\n"
+        "You MUST search before answering — do NOT write an answer without first calling at least one tool.\n\n"
         "### Rules\n"
         "1. Use tools to research the user's question. Be strategic — you have limited steps.\n"
         "2. After each tool call you will receive a **compressed summary** of the result.\n"
@@ -156,11 +165,7 @@ def run_optimized_agent(
         "6. Present specific items you found (titles, names, data, dates).\n"
         "7. Do NOT write generic overviews from your training memory.\n"
         "8. Your answer MUST be grounded in what the tools returned.\n"
-        "9. Structure your answer like this:\n"
-        "   **Topic** — Short paragraph (2-3 sentences).\n"
-        "   - Key finding with detail\n"
-        "   - Another key finding\n"
-        "10. Use **bold** for topic names and key terms. Use bullet points (-) for findings and data. Keep paragraphs short — max 3 sentences. Never write one giant wall of text.\n"
+        "9. When you provide your final answer, use **bold** for topic names, short paragraphs, and bullet points for findings. Keep it readable.\n"
     )
 
     user_block = prompt
@@ -180,11 +185,11 @@ def run_optimized_agent(
         )
 
         try:
-            # Re-bind tools each round to ensure they're always in the API request
-            # Prevents Groq's 'tool was not in request.tools' rejection
+            # First attempt WITHOUT bind_tools — the model will output text-based
+            # tool calls which Groq rejects, triggering _is_tool_error → retry with
+            # bind_tools. This forces the model to actually call tools vs. skipping.
             tool_list = list(tool_map.values())
-            round_llm = llm.bind_tools(tool_list, tool_choice="auto")
-            response = round_llm.invoke(messages)
+            response = llm.invoke(messages)
         except Exception as exc:
             if _is_token_limit_error(exc):
                 print(f"[OptAgent] Token-limit error (413/TPM), reducing context…",
@@ -262,7 +267,6 @@ def run_optimized_agent(
                     except Exception:
                         continue
                 if retried:
-                    # If retry returned a final answer, return it. Otherwise process tool calls normally.
                     if not response.tool_calls:
                         final = response.content if hasattr(response, "content") else str(response)
                         return _clean_response(final), raw_steps
@@ -291,12 +295,62 @@ def run_optimized_agent(
 
         # ── no tool call → final answer ───────────────────────────────
         if not response.tool_calls:
-            final = response.content if hasattr(response, "content") else str(response)
-            print(
-                f"[OptAgent] Final answer received at round {iteration + 1}",
-                file=sys.stderr,
-            )
-            return _clean_response(final), raw_steps
+            # On first round with no research yet, the model likely didn't
+            # understand tools are available (no bind_tools). Retry with
+            # bind_tools so the API exposes tools properly to the model.
+            if iteration == 0 and not compressed_history:
+                print(
+                    f"[OptAgent] Round 1: no tool calls, retrying with bind_tools…",
+                    file=sys.stderr,
+                )
+                tool_list = list(tool_map.values())
+                try:
+                    round_llm = llm.bind_tools(tool_list, tool_choice="auto")
+                    response = round_llm.invoke(messages)
+                    if response.tool_calls:
+                        # bind_tools produced tool calls — fall through to processing
+                        pass
+                    else:
+                        final = response.content if hasattr(response, "content") else str(response)
+                        cleaned = _clean_response(final)
+                        print(
+                            "[OptAgent] Still no tool calls after bind_tools, accepting as final",
+                            file=sys.stderr,
+                        )
+                        return cleaned, raw_steps
+                except Exception as bind_err:
+                    print(
+                        f"[OptAgent] bind_tools retry failed: {bind_err}",
+                        file=sys.stderr,
+                    )
+                    return (
+                        "I'm having trouble researching this topic right now. "
+                        "Please try again."
+                    ), raw_steps
+            else:
+                final = response.content if hasattr(response, "content") else str(response)
+                cleaned = _clean_response(final)
+
+                # Detect model hallucinating tool calls in text instead of real content
+                if compressed_history and (
+                    not cleaned.strip()
+                    or cleaned.strip().startswith('{"query"')
+                    or "<websearch" in final.lower()
+                ):
+                    print(
+                        f"[OptAgent] Round {iteration + 1}: model output contained "
+                        "hallucinated tool calls instead of real content — synthesizing from research",
+                        file=sys.stderr,
+                    )
+                    return _synthesize_final(
+                        prompt, compressed_history, llm, tools=list(tool_map.values())
+                    ), raw_steps
+
+                print(
+                    f"[OptAgent] Final answer received at round {iteration + 1}",
+                    file=sys.stderr,
+                )
+                return cleaned, raw_steps
 
         # ── process each tool call ────────────────────────────────────
         for tc in response.tool_calls:
@@ -359,8 +413,10 @@ def _safe_args(args: dict, limit: int = 80) -> str:
 
 
 def _clean_response(text: str) -> str:
-    """Strip LLM citation markers like 【web_search†L5-L6】 from the answer."""
+    """Strip LLM hallucinated tool call tags and citation markers from the answer."""
     import re
+    text = re.sub(r"</?(?:websearch|function|tool|search|invoke)[^>]*>", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"<function=[^>]*>", "", text)
     text = re.sub(r"【[^】]*】", "", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
@@ -378,8 +434,11 @@ def _synthesize_final(
             "Please rephrase your question or try a narrower topic."
         )
 
+    _today = datetime.now().strftime("%B %d, %Y")
     synthesis_prompt = (
         "Synthesize a final answer based on the research summaries below.\n\n"
+        f"CURRENT DATE: {_today}.\n"
+        "Prioritize the most recent findings — label the year of each source (e.g. \"- Source Name (2026) — description\").\n\n"
         "Research summaries:\n"
         + "\n".join(f"- {s}" for s in compressed_history)
         + "\n\nInstructions:\n"
@@ -398,8 +457,8 @@ def _synthesize_final(
         "- Key finding\n"
         "\n"
         "### Sources\n"
-        "- Source — description\n"
-        "- Source — description\n"
+        "- Source (2026) — description\n"
+        "- Source (2025) — description\n"
         "\n"
         "Keep paragraphs short (max 3 sentences). Use bullet points for findings.\n"
         "End with a Sources section listing each source on its own line.\n"

@@ -120,13 +120,14 @@ def handle_slash_command(
         if request.command == "summarize":
             if not request.conversation_id:
                 return {"error": "No conversation selected"}
-            # Run summarize with a timeout (same pattern as deepThink)
+            # Ensure conversation exists in DB before saving messages (FK constraint)
+            now = datetime.now().isoformat()
+            save_conversation(request.conversation_id, user_id, "New chat", now, now)
+            # Run summarize with a timeout
             pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
             try:
                 fut = pool.submit(run_summarize, request.conversation_id, user_id)
                 summary = fut.result()
-                # Save to database
-                now = datetime.now().isoformat()
                 save_message(f"user-slash-{now}", request.conversation_id, user_id, "user", f"/summarize", now)
                 save_message(f"assistant-slash-{now}", request.conversation_id, user_id, "assistant", summary, now)
                 return {"answer": summary}
@@ -136,6 +137,9 @@ def handle_slash_command(
         if request.command == "deepThink":
             if not request.conversation_id:
                 return {"error": "No conversation selected"}
+            # Ensure conversation exists in DB before saving messages (FK constraint)
+            now = datetime.now().isoformat()
+            save_conversation(request.conversation_id, user_id, "New chat", now, now)
 
             messages = get_conversation_messages(request.conversation_id, user_id)
 
@@ -149,8 +153,6 @@ def handle_slash_command(
                     messages if messages else None,
                 )
                 answer, _ = fut.result()
-                # Save to database
-                now = datetime.now().isoformat()
                 topic_text = f" /{request.topic}" if request.topic else ""
                 save_message(f"user-slash-{now}", request.conversation_id, user_id, "user", f"/deepThink{topic_text}", now)
                 save_message(f"assistant-slash-{now}", request.conversation_id, user_id, "assistant", answer, now)

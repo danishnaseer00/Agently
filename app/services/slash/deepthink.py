@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from datetime import datetime
 from typing import Any
 
 from app.core.config import get_settings
@@ -66,6 +67,7 @@ def _build_deep_prompt(topic: str | None, messages: list | None) -> str:
     else:
         context = "The user requested deep research but didn't specify a topic."
 
+    _today = datetime.now().strftime("%B %d, %Y")
     return (
         "You are a deep research agent. Your task is to conduct thorough research on the following topic.\n\n"
         f"{context}\n\n"
@@ -73,8 +75,13 @@ def _build_deep_prompt(topic: str | None, messages: list | None) -> str:
         "Your answer MUST be based on what you find via the search tools.\n"
         "Do NOT write a generic overview from your training memory.\n"
         "The user wants SPECIFIC, CONCRETE findings — not general background.\n\n"
+        f"CURRENT DATE: {_today}.\n"
+        "You MUST search for the MOST RECENT information. Search 2026 first. If 2026 results are sparse, then search 2025.\n"
+        "Only use pre-2025 information if BOTH 2026 and 2025 yield nothing.\n"
+        "Include the year in your search queries (e.g. \"2026 computer vision research\") to get the freshest results.\n"
+        "You MUST call at least one search tool before writing your final answer.\n\n"
         "Instructions:\n"
-        "1. Search the web for the topic using the web_search tool — search for at least 3 different queries\n"
+        "1. Search the web for the topic using the web_search tool — search for at least 3 different queries, each targeting the latest information\n"
         "2. Fetch and read the most promising sources using fetch_url to get full details\n"
         "3. Cross-reference information from multiple sources\n"
         "4. If sources disagree, note the different viewpoints\n\n"
@@ -93,9 +100,9 @@ def _build_deep_prompt(topic: str | None, messages: list | None) -> str:
         "\n"
         "---\n"
         "### Sources\n"
-        "- Source Name — description or title\n"
-        "- Source Name — description or title\n"
-        "- Source Name — description or title\n"
+        "- Source Name  — description or title\n"
+        "- Source Name  — description or title\n"
+        "- Source Name  — description or title\n"
         "\n"
         "RULES:\n"
         "1. Start each topic with **bold name** then a **short paragraph** (2-3 sentences), then \"bullet points\" for specific findings.\n"
@@ -104,4 +111,5 @@ def _build_deep_prompt(topic: str | None, messages: list | None) -> str:
         "4. End with a \"### Sources\" section listing each source on its own line.\n"
         "5. Focus on concrete findings (names, data, facts) — no generic overview from memory.\n"
         "6. Do NOT write everything in one long paragraph. Break it into sections.\n"
+        # "7. Only use information from 2025 or 2026 unless no newer sources exist (e.g. \"- Source Name (2026) — description\").\n"
     )
