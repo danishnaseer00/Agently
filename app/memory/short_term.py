@@ -5,8 +5,8 @@ def format_history(messages: list[dict[str, str]]) -> str:
     if not messages:
         return "No previous conversation."
 
-    # Keep only last 3 exchanges to stay under token limits
-    recent_messages = messages[-3:]
+    # Keep last 10 messages for conversation context
+    recent_messages = messages[-10:]
     lines: list[str] = []
     for message in recent_messages:
         role = message["role"]

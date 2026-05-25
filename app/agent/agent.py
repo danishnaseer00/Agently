@@ -53,6 +53,7 @@ def _build_context_block(
     system_msg: str,
     user_block: str,
     compressed_history: list[str],
+    force_tools: bool = False,
 ) -> str:
     parts = [system_msg, f"\n\n## User question\n{user_block}"]
     if compressed_history:
@@ -69,8 +70,10 @@ def _build_context_block(
             )
         else:
             parts.append(
-                "\n\nResearch this question using the available tools."
-                " Start by searching the web."
+                ("\n\nResearch this question using the available tools. Start by searching the web."
+                 if force_tools else
+                 "\n\nIf this question needs fresh or external data, use the tools to research it."
+                 " Otherwise answer directly from what you know.")
             )
     return "".join(parts)
 
@@ -83,6 +86,7 @@ def run_optimized_agent(
     max_iterations: int = 8,
     compress_chars: int = 1200,
     tool_output_limit: int = 1500,
+    force_tools: bool = False,
 ) -> tuple[str, list[dict[str, Any]]]:
     """Run an agent loop that compresses tool outputs instead of appending them.
 
@@ -152,19 +156,18 @@ def run_optimized_agent(
         f"CURRENT DATE: {_today}.\n"
         "Search for the MOST RECENT information — try 2026 first, then 2025.\n"
         "Include the year in your search queries (e.g. \"2026 computer vision\") to get fresh results.\n"
-        "You MUST search before answering — do NOT write an answer without first calling at least one tool.\n\n"
-        "### Rules\n"
+        + ("You MUST search before answering — do NOT write an answer without first calling at least one tool.\n\n"
+           if force_tools else
+           "Only use tools when you need fresh/external data — for simple conversation answer directly.\n\n")
+        + "### Rules\n"
         "1. Use tools to research the user's question. Be strategic — you have limited steps.\n"
         "2. After each tool call you will receive a **compressed summary** of the result.\n"
         "3. Decide: call another tool to gather more, OR provide your final answer.\n"
         "4. When you have enough information, answer the user directly.\n"
         "5. Do NOT ask the user for permission — just proceed.\n"
-        "6. Present specific items you found (titles, names, data, dates).\n"
-        "7. Do NOT write generic overviews from your training memory.\n"
+        "6. When using tools: present specific items (titles, names, data, dates).\n"
+        "7. When answering without tools: be concise and direct — give the answer briefly unless asked for detail.\n"
         "8. Your answer MUST be grounded in what the tools returned.\n"
-        "9. Format your final answer cleanly: use **bold** for key terms, "
-        "bullet points for lists, and subheadings (###) to organize sections. "
-        "Keep it readable with proper paragraph breaks.\n"
     )
 
     user_block = prompt
@@ -172,7 +175,7 @@ def run_optimized_agent(
         user_block = f"{chat_history}\n\nUser question: {prompt}"
 
     for iteration in range(max_iterations):
-        context_str = _build_context_block(system_msg, user_block, compressed_history)
+        context_str = _build_context_block(system_msg, user_block, compressed_history, force_tools=force_tools)
         messages = [HumanMessage(content=context_str)]
 
         total_chars = len(context_str)
@@ -198,7 +201,7 @@ def run_optimized_agent(
                 if len(compressed_history) > 2:
                     compressed_history[:] = compressed_history[-2:]
                     context_str = _build_context_block(
-                        system_msg, user_block, compressed_history,
+                        system_msg, user_block, compressed_history, force_tools=force_tools,
                     )
                     messages = [HumanMessage(content=context_str)]
                     print(f"[OptAgent] Retry with last 2 steps only", file=sys.stderr)
@@ -213,7 +216,7 @@ def run_optimized_agent(
                 if response is None:
                     compressed_history.clear()
                     context_str = _build_context_block(
-                        system_msg, user_block, compressed_history,
+                        system_msg, user_block, compressed_history, force_tools=force_tools,
                     )
                     messages = [HumanMessage(content=context_str)]
                     print(f"[OptAgent] Retry with zero history", file=sys.stderr)
@@ -296,10 +299,10 @@ def run_optimized_agent(
 
         # ── no tool call → final answer ───────────────────────────────
         if not response.tool_calls:
-            # On first round with no research yet, the model likely didn't
-            # understand tools are available (no bind_tools). Retry with
-            # bind_tools so the API exposes tools properly to the model.
-            if iteration == 0 and not compressed_history:
+            # On first round with no research yet and force_tools is set
+            # (deepThink), the model may not call tools without bind_tools.
+            # Retry with tool_choice="any" to force a tool call.
+            if force_tools and iteration == 0 and not compressed_history:
                 print(
                     f"[OptAgent] Round 1: no tool calls, retrying with bind_tools…",
                     file=sys.stderr,

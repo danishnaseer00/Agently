@@ -26,13 +26,31 @@ def build_executor(temperature: float, max_results: int, tool_names: list[str] |
         tools = [available["web_search"], available["fetch_url"], available["analyze_image"]]
 
     tool_names_list = [t.name for t in tools]
-    print(f"\n[DEBUG] Building executor with tools: {tool_names_list}", file=sys.stderr)
+    print(f"[OptimizedExecutor] Tools: {tool_names_list}", file=sys.stderr)
 
+    # Bind tools to LLM for function calling
     llm = build_llm(settings, temperature, tools, model_name=model_name)
-    executor = build_agent(llm, tools, max_iterations=max_iterations)
 
-    print(f"[DEBUG] Agent tools: {[t.name for t in executor.tools]}", file=sys.stderr)
-    return executor
+    def run_fn(prompt: str, chat_history: str = "") -> tuple[str, list]:
+        return run_optimized_agent(
+            tools=tools,
+            llm=llm,
+            prompt=prompt,
+            chat_history=chat_history,
+            max_iterations=max_iterations,
+            compress_chars=compress_chars,
+            tool_output_limit=tool_output_limit,
+            force_tools=True,
+        )
+
+    return {
+        "tools": tools,
+        "llm": llm,
+        "run_fn": run_fn,
+        "max_iterations": max_iterations,
+        "compress_chars": compress_chars,
+        "tool_output_limit": tool_output_limit,
+    }
 
 
 def build_compressed_chat_executor(
