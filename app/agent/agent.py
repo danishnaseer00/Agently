@@ -59,10 +59,7 @@ def _build_context_block(
         parts.append("\n\n## Research so far (compressed)")
         for i, step in enumerate(compressed_history, 1):
             parts.append(f"  {i}. {step}")
-        parts.append("\n\nContinue researching or provide your final answer."
-            " When providing the final answer, use **bold** for topic names,"
-            " short paragraphs (2-3 sentences), bullet points for findings, and"
-            " include a Sources section.")
+        parts.append("\n\nContinue researching or provide your final answer.")
     else:
         if "Reference Documents:" in user_block:
             parts.append(
@@ -165,7 +162,9 @@ def run_optimized_agent(
         "6. Present specific items you found (titles, names, data, dates).\n"
         "7. Do NOT write generic overviews from your training memory.\n"
         "8. Your answer MUST be grounded in what the tools returned.\n"
-        "9. When you provide your final answer, use **bold** for topic names, short paragraphs, and bullet points for findings. Keep it readable.\n"
+        "9. Format your final answer cleanly: use **bold** for key terms, "
+        "bullet points for lists, and subheadings (###) to organize sections. "
+        "Keep it readable with proper paragraph breaks.\n"
     )
 
     user_block = prompt
@@ -250,11 +249,7 @@ def run_optimized_agent(
                     "tool": "_tool_error",
                     "error": str(exc),
                 })
-                if compressed_history:
-                    return _synthesize_final(
-                        prompt, compressed_history, llm, tools=list(tool_map.values())
-                    ), raw_steps
-                # No research yet — retry same round with tools (transient Groq issue)
+                # Retry same round with bind_tools (transient Groq issue with text-based tool calls)
                 retried = False
                 for retry in range(2):
                     time.sleep(1 + retry)
@@ -270,7 +265,13 @@ def run_optimized_agent(
                     if not response.tool_calls:
                         final = response.content if hasattr(response, "content") else str(response)
                         return _clean_response(final), raw_steps
+                    # Has tool_calls — fall through to processing below
                 else:
+                    # Both retries failed — synthesize from existing research if any
+                    if compressed_history:
+                        return _synthesize_final(
+                            prompt, compressed_history, llm, tools=list(tool_map.values())
+                        ), raw_steps
                     return (
                         "We're having trouble processing your request right now. "
                         "Please try again in a moment."
@@ -305,7 +306,7 @@ def run_optimized_agent(
                 )
                 tool_list = list(tool_map.values())
                 try:
-                    round_llm = llm.bind_tools(tool_list, tool_choice="auto")
+                    round_llm = llm.bind_tools(tool_list, tool_choice="any")
                     response = round_llm.invoke(messages)
                     if response.tool_calls:
                         # bind_tools produced tool calls — fall through to processing
@@ -418,8 +419,9 @@ def _clean_response(text: str) -> str:
     text = re.sub(r"</?(?:websearch|function|tool|search|invoke)[^>]*>", "", text, flags=re.IGNORECASE)
     text = re.sub(r"<function=[^>]*>", "", text)
     text = re.sub(r"【[^】]*】", "", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
+    text = re.sub(r" {2,}", " ", text)       # collapse multiple spaces only
+    text = re.sub(r"\n{3,}", "\n\n", text)   # cap consecutive newlines at 2
+    return text.strip()
 
 
 def _synthesize_final(
@@ -434,34 +436,14 @@ def _synthesize_final(
             "Please rephrase your question or try a narrower topic."
         )
 
-    _today = datetime.now().strftime("%B %d, %Y")
     synthesis_prompt = (
         "Synthesize a final answer based on the research summaries below.\n\n"
-        f"CURRENT DATE: {_today}.\n"
-        "Prioritize the most recent findings — label the year of each source (e.g. \"- Source Name (2026) — description\").\n\n"
-        "Research summaries:\n"
+        "### Research summaries\n"
         + "\n".join(f"- {s}" for s in compressed_history)
-        + "\n\nInstructions:\n"
-        "Write a clean, direct answer that addresses the user's question.\n"
-        "Present specific findings (titles, data, facts) from the research.\n"
-        "Do NOT write generic background from your training memory.\n"
-        "Structure your answer like this:\n"
-        "\n"
-        "**Topic Name**\n"
-        "Short paragraph (2-3 sentences).\n"
-        "- Key finding\n"
-        "- Key finding\n"
-        "\n"
-        "**Next Topic**\n"
-        "Short paragraph.\n"
-        "- Key finding\n"
-        "\n"
-        "### Sources\n"
-        "- Source (2026) — description\n"
-        "- Source (2025) — description\n"
-        "\n"
-        "Keep paragraphs short (max 3 sentences). Use bullet points for findings.\n"
-        "End with a Sources section listing each source on its own line.\n"
+        + "\n\n### Instructions\n"
+        "Write a well-structured answer that directly addresses the user's question. "
+        "Present specific findings (titles, data, facts) from the research. "
+        "Do NOT write generic background from your training memory."
     )
 
     try:
