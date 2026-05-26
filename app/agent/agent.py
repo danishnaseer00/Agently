@@ -117,9 +117,10 @@ def run_optimized_agent(
                 "2. If the question is simple (e.g. 'what is this'), give a concise 1-2 sentence answer.\n"
                 "3. Do NOT add extra analysis, summaries, or details unless asked.\n"
                 "4. Do NOT mention that you cannot see the image — the analysis is already done for you.\n"
-                "5. Format cleanly: use **bold** for key terms, bullet points for lists, and paragraphs for explanations. Keep it readable.\n"
+                "5. Write in simple paragraphs. **Bold** sparingly — only the single most important term. Add line breaks between paragraphs.\n"
             )
             context_tag = "Image analysis"
+
         else:
             system_msg = (
                 "You are a helpful assistant answering questions using the provided reference documents.\n"
@@ -128,7 +129,7 @@ def run_optimized_agent(
                 "1. Answer the user's question based on the provided documents.\n"
                 "2. If the question is simple (e.g. 'what is this about'), give to the point answer in 3-4 lines.\n"
                 "3. Do NOT add analysis, summaries, or extra details unless asked.\n"
-                "4. Format cleanly: use **bold** for key terms, bullet points for lists, and paragraphs for explanations. Keep it readable.\n"
+                "4. Write in simple paragraphs. **Bold** sparingly — only the single most important term. Add line breaks between paragraphs.\n"
             )
             context_tag = "Reference documents"
         user_block = prompt
@@ -165,9 +166,10 @@ def run_optimized_agent(
         "3. Decide: call another tool to gather more, OR provide your final answer.\n"
         "4. When you have enough information, answer the user directly.\n"
         "5. Do NOT ask the user for permission — just proceed.\n"
-        "6. When using tools: present specific items (titles, names, data, dates).\n"
-        "7. When answering without tools: be concise and direct — give the answer briefly unless asked for detail.\n"
-        "8. Your answer MUST be grounded in what the tools returned.\n"
+        "6. Do NOT include your internal reasoning or thinking process — only output the final answer.\n"
+        "7. When using tools: present specific items (titles, names, data, dates).\n"
+        "8. When answering without tools: be concise and direct — give the answer briefly unless asked for detail.\n"
+        "9. Your answer MUST be grounded in what the tools returned.\n"
     )
 
     user_block = prompt

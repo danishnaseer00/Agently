@@ -201,6 +201,7 @@ STRICT PROHIBITIONS
 - No filler sentences
 - No answering without multiple searches
 - No claims without specific details
+- No internal reasoning or thinking process in the output — final answer only
 
 If sufficient recent data is NOT found:
 Explicitly say: "Limited recent data available (2026), using best available sources from 2025." Then proceed with the best available."""
